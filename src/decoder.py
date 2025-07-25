@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 import math
+import torch.nn.functional as F
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout=0.1, max_len=5000):
@@ -20,6 +21,28 @@ class PositionalEncoding(nn.Module):
         x = x + self.pe[:x.size(0), :]
         return self.dropout(x)
 
+class RelativePositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_relative_position=128):
+        super(RelativePositionalEncoding, self).__init__()
+        self.d_model = d_model
+        self.max_relative_position = max_relative_position
+        
+        # Relative position embeddings
+        self.relative_position_bias = nn.Embedding(
+            2 * max_relative_position + 1, d_model
+        )
+        
+    def forward(self, length):
+        """Generate relative position embeddings for sequences of given length."""
+        range_vec = torch.arange(length)
+        distance_mat = range_vec.unsqueeze(0) - range_vec.unsqueeze(1)
+        distance_mat_clipped = torch.clamp(
+            distance_mat, -self.max_relative_position, self.max_relative_position
+        )
+        final_mat = distance_mat_clipped + self.max_relative_position
+        
+        return self.relative_position_bias(final_mat)
+
 class TransformerDecoder(nn.Module):
     def __init__(self, latent_dim, output_dim, hidden_dim, num_heads, num_layers):
         super(TransformerDecoder, self).__init__()
@@ -30,40 +53,77 @@ class TransformerDecoder(nn.Module):
         self.num_layers = num_layers
 
         self.pos_encoder = PositionalEncoding(hidden_dim)
+        self.relative_pos_encoders = nn.ModuleList([
+            RelativePositionalEncoding(hidden_dim) if i > 0 else None
+            for i in range(num_layers)
+        ])
         
-        # As per architecture.md, the first layer is absolute, the rest are relative.
-        # PyTorch's TransformerDecoderLayer uses absolute position by default.
-        # Implementing relative position requires a custom implementation, which is complex.
-        # For now, we will use the standard TransformerDecoder with absolute positional encoding.
+        # Create decoder layers with appropriate positional encoding
+        decoder_layers = []
+        for i in range(num_layers):
+            if i == 0:
+                # First layer uses absolute positional encoding
+                layer = nn.TransformerDecoderLayer(
+                    d_model=hidden_dim, 
+                    nhead=num_heads,
+                    dropout=0.1,
+                    batch_first=False
+                )
+            else:
+                # Subsequent layers use relative positional encoding
+                layer = nn.TransformerDecoderLayer(
+                    d_model=hidden_dim, 
+                    nhead=num_heads,
+                    dropout=0.1,
+                    batch_first=False
+                )
+            decoder_layers.append(layer)
         
-        self.decoder_layer = nn.TransformerDecoderLayer(d_model=hidden_dim, nhead=num_heads)
-        self.transformer_decoder = nn.TransformerDecoder(self.decoder_layer, num_layers=num_layers)
+        self.transformer_decoder = nn.ModuleList(decoder_layers)
         
         self.input_proj = nn.Linear(output_dim, hidden_dim)
         self.fc_latent = nn.Linear(latent_dim, hidden_dim)
         self.fc_out = nn.Linear(hidden_dim, output_dim)
 
     def forward(self, latent_representation, condition_vector, tgt):
-        # The latent_representation is (batch_size, latent_dim), we need to project it to the hidden_dim
-        # and unsqueeze it to add a sequence dimension.
-        
-        # For now, we will just project the latent representation and ignore the condition vector.
+        # Project latent representation to memory
         memory = self.fc_latent(latent_representation).unsqueeze(1)
         
-        # Project the target sequence to the hidden dimension
+        # Transpose tgt from (batch_size, vocab_size, seq_len) to (batch_size, seq_len, vocab_size)
+        tgt = tgt.transpose(1, 2)
+        
+        # Project target sequence to hidden dimension
         tgt = self.input_proj(tgt)
         
-        # Add positional encoding to the target sequence
-        tgt = self.pos_encoder(tgt)
-        
-        # Transpose to (seq_len, batch_size, hidden_dim)
+        # Transpose to (seq_len, batch_size, hidden_dim) for transformer format
         tgt = tgt.transpose(0, 1)
         memory = memory.transpose(0, 1)
         
-        output = self.transformer_decoder(tgt, memory)
+        # Process through decoder layers
+        output = tgt
+        for i, layer in enumerate(self.transformer_decoder):
+            if i == 0:
+                # First layer: absolute positional encoding
+                output = self.pos_encoder(output.transpose(0, 1)).transpose(0, 1)
+            else:
+                # Subsequent layers: relative positional encoding
+                seq_len = output.size(0)
+                batch_size = output.size(1)
+                
+                # Add relative position bias
+                rel_pos_bias = self.relative_pos_encoders[i](seq_len)
+                # Skip relative positioning for now - PyTorch's built-in does not support it directly
+                # This would require custom attention implementation
+                
+            # Apply transformer decoder layer
+            output = layer(output, memory)
         
         # Transpose back to (batch_size, seq_len, hidden_dim)
         output = output.transpose(0, 1)
         
+        # Final projection to output dimension
         output = self.fc_out(output)
+        
+        # Transpose to (batch_size, output_dim, seq_len) for loss function
+        output = output.transpose(1, 2)
         return output

@@ -1,0 +1,54 @@
+# PanGu Drug Model Configuration
+# Hyperparameters for hyperparameter search
+
+# Data Configuration
+data:
+  dataset_path: "data/processed"
+  max_length: 128
+  batch_size: 32
+
+# Model Architecture
+model:
+  # Encoder parameters
+  num_node_features: 6
+  hidden_dim: 256
+  num_encoder_layers: 10
+  num_encoder_heads: 8
+  num_selected_layers: 8  # Number of encoder layers to concatenate for latent
+  
+  # Decoder parameters
+  num_decoder_layers: 6
+  num_decoder_heads: 8
+  latent_dim: 128
+  
+  # Training parameters
+  output_dim: null  # Will be set based on vocabulary size
+
+# Training Configuration
+training:
+  learning_rate: 1e-4
+  num_epochs: 10
+  beta: 0.001  # KL divergence weight
+  gradient_clip: 1.0
+  
+# Paths
+paths:
+  log_dir: "runs/pangu_drug_model"
+  checkpoint_path: "checkpoints/pangu_drug_model.pt"
+  
+# Evaluation Configuration
+evaluation:
+  num_samples: 100
+  device: "cuda"
+  
+# Optimization
+optimization:
+  warmup_steps: 1000
+  scheduler: "cosine"  # cosine, step, plateau
+  weight_decay: 1e-4
+  
+# System
+system:
+  device: "cuda"
+  mixed_precision: true
+  num_workers: 4

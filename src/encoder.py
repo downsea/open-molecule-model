@@ -1,7 +1,7 @@
 
 import torch
 import torch.nn as nn
-from torch_geometric.nn import TransformerConv
+from torch_geometric.nn import TransformerConv, global_mean_pool
 
 class GraphTransformerEncoder(nn.Module):
     def __init__(self, num_node_features, hidden_dim, num_layers, num_heads):
@@ -30,25 +30,34 @@ class GraphTransformerEncoder(nn.Module):
         # Using 0-based indexing: 0, 1, 2, 3, 4, 5, 7, 9
         selected_layers = [0, 1, 2, 3, 4, 5, 7, 9]
         
-        # We need to handle the case where num_layers is less than 10
-        # For now, we assume num_layers is at least 10
-        if self.num_layers < 10:
-            # Simple case: just use all layers
-            selected_outputs = layer_outputs
+        # Ensure we have at least the required number of layers
+        # If not, use available layers and repeat the last one
+        available_layers = len(layer_outputs)
+        if available_layers < 10:
+            # Use available layers and pad with the last layer
+            selected_outputs = []
+            for i in range(8):  # We need 8 layers
+                if i < available_layers:
+                    selected_outputs.append(layer_outputs[i])
+                else:
+                    selected_outputs.append(layer_outputs[-1])
         else:
             selected_outputs = [layer_outputs[i] for i in selected_layers]
 
-
-        # The output should be a latent matrix of size 8x256.
-        # This requires more specific pooling and concatenation logic.
-        # For now, we will just concatenate and pool.
-        x = torch.cat(selected_outputs, dim=1)
+        # Create 8x256 latent matrix by pooling each layer's output separately
+        # Each layer output is (num_nodes, hidden_dim * num_heads)
+        # We need to pool each layer to get (batch_size, hidden_dim * num_heads)
+        pooled_outputs = []
+        for layer_output in selected_outputs:
+            # Pool each layer to graph-level representation
+            pooled = global_mean_pool(layer_output, batch)
+            pooled_outputs.append(pooled)
         
-        # This is a placeholder for the correct pooling logic
-        # to get to the 8x256 latent matrix.
-        # We will need to implement a more sophisticated pooling strategy.
-        # For now, we will just do a global add pool.
-        from torch_geometric.nn import global_add_pool
-        x = global_add_pool(x, batch)
-
+        # Stack to create 8x256 matrix: (batch_size, 8, hidden_dim * num_heads)
+        # Then reshape to (batch_size, 8 * hidden_dim * num_heads)
+        latent_matrix = torch.stack(pooled_outputs, dim=1)  # (batch_size, 8, hidden_dim * num_heads)
+        
+        # Flatten to get final representation
+        x = latent_matrix.view(latent_matrix.size(0), -1)  # (batch_size, 8 * hidden_dim * num_heads)
+        
         return x

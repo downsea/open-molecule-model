@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__ide__executeCode",
+      "Bash(python:*)",
+      "Bash(..venvScriptsactivate)",
+      "Bash(pip install:*)",
+      "Bash(uv pip install:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": []
+  }
+}

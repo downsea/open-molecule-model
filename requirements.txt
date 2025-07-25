@@ -8,3 +8,4 @@ selfies
 torch_geometric
 tensorboard
 uv
+pyyaml
