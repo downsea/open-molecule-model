@@ -13,6 +13,13 @@ def process_smi_file(input_path, output_dir):
         input_path (str): The path to the input .smi file.
         output_dir (str): The directory to save the processed data.
     """
+    output_filename = os.path.basename(input_path).replace('.smi', '.pt')
+    output_filepath = os.path.join(output_dir, output_filename)
+    
+    if os.path.exists(output_filepath):
+        print(f"Processed file already exists: {output_filepath}. Skipping.")
+        return
+        
     print(f"Processing {input_path}...")
     try:
         data = pd.read_csv(input_path, sep=' ', names=['smiles', 'zinc_id'], header=0)
@@ -29,8 +36,6 @@ def process_smi_file(input_path, output_dir):
             molecules.append(mol)
     
     if molecules:
-        output_filename = os.path.basename(input_path).replace('.smi', '.pt')
-        output_filepath = os.path.join(output_dir, output_filename)
         torch.save(molecules, output_filepath)
         print(f"Successfully processed {len(molecules)} molecules and saved to {output_filepath}")
     else:
