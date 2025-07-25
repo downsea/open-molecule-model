@@ -6,7 +6,11 @@
       "Bash(..venvScriptsactivate)",
       "Bash(pip install:*)",
       "Bash(uv pip install:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(mkdir:*)",
+      "Bash(touch:*)"
     ],
     "deny": []
   }

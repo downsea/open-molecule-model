@@ -109,6 +109,9 @@ Thumbs.db
 
 # Data files
 data/processed/
+data/raw/
+*_fail.uri
+download.log
 
 # Model checkpoints and run artifacts
 runs/
