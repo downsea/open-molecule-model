@@ -90,12 +90,41 @@ download_data() {
   DATE_TIME=$(date +"%Y%m%d_%H%M%S")
   FAIL_FILE="$DATA_DIR/${DATE_TIME}_fail.uri"
   
-  echo "Downloading SMI files from $URI_FILE..."
+  # Create temporary URI file for files that need downloading
+  TEMP_URI_FILE="$DATA_DIR/temp_download.uri"
+  
+  # Filter out already downloaded files
+  echo "Checking for existing files..."
+  > "$TEMP_URI_FILE"
+  while IFS= read -r url; do
+    if [[ -n "$url" && ! "$url" =~ ^# ]]; then
+      # Extract filename from URL
+      filename=$(basename "$url")
+      if [ ! -f "$DATA_DIR/raw/$filename" ]; then
+        echo "$url" >> "$TEMP_URI_FILE"
+      fi
+    fi
+  done < "$URI_FILE"
+  
+  # Count files to download
+  FILES_TO_DOWNLOAD=$(wc -l < "$TEMP_URI_FILE")
+  TOTAL_FILES=$(grep -v '^#' "$URI_FILE" | grep -v '^$' | wc -l)
+  EXISTING_FILES=$((TOTAL_FILES - FILES_TO_DOWNLOAD))
+  
+  echo "Found $EXISTING_FILES existing files, $FILES_TO_DOWNLOAD files need to be downloaded."
+  
+  if [ "$FILES_TO_DOWNLOAD" -eq 0 ]; then
+    echo "All files already exist. Skipping download."
+    rm -f "$TEMP_URI_FILE"
+    return 0
+  fi
+  
+  echo "Downloading $FILES_TO_DOWNLOAD SMI files..."
   echo "Saving to: $DATA_DIR/raw/"
   echo "Failed downloads will be logged to: $FAIL_FILE"
   
-  # Use aria2 for multi-threaded download
-  aria2c --input-file="$URI_FILE" \
+  # Use aria2 for multi-threaded download with filtered list
+  aria2c --input-file="$TEMP_URI_FILE" \
          --dir="$DATA_DIR/raw" \
          --max-concurrent-downloads=10 \
          --max-connection-per-server=4 \
@@ -109,6 +138,9 @@ download_data() {
          --save-session="$FAIL_FILE" \
          --save-session-interval=60 \
          --console-log-level=info
+  
+  # Clean up temporary file
+  rm -f "$TEMP_URI_FILE"
   
   echo "Download completed!"
   

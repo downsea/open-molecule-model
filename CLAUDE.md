@@ -17,10 +17,7 @@ This project reproduces the PanGu Drug Model from "PanGu Drug Model: Learn a Mol
 
 ### Development Workflow
 ```bash
-# Setup environment (Windows)
-.\bootstrap.ps1 -Install
-
-# Setup environment (Linux/macOS)
+# Setup environment (Windows with Git Bash/WSL)
 ./bootstrap.sh --install
 
 # Download ZINC dataset (1900+ SMI files)
@@ -28,13 +25,13 @@ This project reproduces the PanGu Drug Model from "PanGu Drug Model: Learn a Mol
 ./bootstrap.sh --download data/custom.uri    # Custom URI file
 
 # Process data
-./bootstrap.sh --process     # or .\bootstrap.ps1 -Process
+./bootstrap.sh --process     
 
 # Train model
-./bootstrap.sh --train       # or .\bootstrap.ps1 -Train
+./bootstrap.sh --train       
 
 # Launch TensorBoard
-./bootstrap.sh --board       # or .\bootstrap.ps1 -Board
+./bootstrap.sh --board      
 
 # Run hyperparameter search
 ./bootstrap.sh --search --random --trials 50 --epochs 5
@@ -62,7 +59,7 @@ python hyperparameter_search.py --random-search --trials 50 --epochs 3
 ### Direct Commands
 ```bash
 # Activate virtual environment
-source .venv/Scripts/activate  # Windows PowerShell: .\.venv\Scripts\Activate.ps1
+source .venv/Scripts/activate  
 
 # Install dependencies
 uv pip install -r requirements.txt
@@ -264,7 +261,7 @@ python -m src.evaluate --mode latent_space
 - Configuration system with hyperparameter search
 - aria2-based multi-threaded data downloading
 - All runtime issues resolved
-- PowerShell support for Windows
+- Git Bash/WSL support for Windows
 
 ## Key Improvements
 
@@ -273,7 +270,7 @@ python -m src.evaluate --mode latent_space
 - **Hyperparameter Search**: Grid and random search with automatic tracking
 - **Data Pipeline**: aria2 multi-threaded downloader for 1900+ SMI files
 - **Evaluation System**: Multi-mode evaluation with comprehensive metrics
-- **Cross-Platform**: Windows PowerShell and Unix bash scripts
+- **Cross-Platform**: Windows (Git Bash/WSL) and Unix bash scripts
 - **Error Handling**: Failed download tracking and retry mechanisms
 
 ### Technical Features
@@ -284,7 +281,7 @@ python -m src.evaluate --mode latent_space
 - **Comprehensive Logging**: TensorBoard integration with detailed metrics
 - **Checkpoint Management**: Automatic saving and loading of model states
 - **Download System**: Multi-threaded aria2-based data downloading with failure handling
-- **Cross-Platform**: Windows PowerShell and Unix shell support
+- **Cross-Platform**: Windows (Git Bash/WSL) and Unix shell support
 
 ## Download System
 
