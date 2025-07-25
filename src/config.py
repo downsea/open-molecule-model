@@ -64,33 +64,59 @@ class Config:
     @classmethod
     def from_yaml(cls, yaml_path: str) -> 'Config':
         """Load configuration from YAML file."""
+        import os
+        
         with open(yaml_path, 'r') as f:
             config_dict = yaml.safe_load(f)
         
         config = cls()
         
-        # Update nested configs
+        def convert_value(value, target_type):
+            """Convert string values to appropriate types."""
+            if isinstance(value, str):
+                if target_type == float:
+                    return float(value)
+                elif target_type == int:
+                    return int(value)
+            return value
+        
+        # Update nested configs with type conversion
         if config_dict and 'data' in config_dict:
             for key, value in config_dict['data'].items():
-                setattr(config.data, key, value)
+                if hasattr(config.data, key):
+                    field_type = type(getattr(config.data, key))
+                    value = convert_value(value, field_type)
+                    setattr(config.data, key, value)
         if config_dict and 'model' in config_dict:
             for key, value in config_dict['model'].items():
-                setattr(config.model, key, value)
+                if hasattr(config.model, key):
+                    field_type = type(getattr(config.model, key))
+                    value = convert_value(value, field_type)
+                    setattr(config.model, key, value)
         if config_dict and 'training' in config_dict:
             for key, value in config_dict['training'].items():
-                setattr(config.training, key, value)
+                if hasattr(config.training, key):
+                    field_type = type(getattr(config.training, key))
+                    value = convert_value(value, field_type)
+                    setattr(config.training, key, value)
         if config_dict and 'paths' in config_dict:
             for key, value in config_dict['paths'].items():
-                setattr(config.paths, key, value)
+                if hasattr(config.paths, key):
+                    setattr(config.paths, key, value)
         if config_dict and 'evaluation' in config_dict:
             for key, value in config_dict['evaluation'].items():
-                setattr(config.evaluation, key, value)
+                if hasattr(config.evaluation, key):
+                    setattr(config.evaluation, key, value)
         if config_dict and 'optimization' in config_dict:
             for key, value in config_dict['optimization'].items():
-                setattr(config.optimization, key, value)
+                if hasattr(config.optimization, key):
+                    field_type = type(getattr(config.optimization, key))
+                    value = convert_value(value, field_type)
+                    setattr(config.optimization, key, value)
         if config_dict and 'system' in config_dict:
             for key, value in config_dict['system'].items():
-                setattr(config.system, key, value)
+                if hasattr(config.system, key):
+                    setattr(config.system, key, value)
             
         return config
     

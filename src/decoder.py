@@ -34,7 +34,8 @@ class RelativePositionalEncoding(nn.Module):
         
     def forward(self, length):
         """Generate relative position embeddings for sequences of given length."""
-        range_vec = torch.arange(length)
+        device = next(self.parameters()).device
+        range_vec = torch.arange(length, dtype=torch.long, device=device)
         distance_mat = range_vec.unsqueeze(0) - range_vec.unsqueeze(1)
         distance_mat_clipped = torch.clamp(
             distance_mat, -self.max_relative_position, self.max_relative_position

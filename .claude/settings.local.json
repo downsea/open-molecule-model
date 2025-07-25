@@ -10,7 +10,13 @@
       "Bash(git commit:*)",
       "Bash(git push:*)",
       "Bash(mkdir:*)",
-      "Bash(touch:*)"
+      "Bash(touch:*)",
+      "Bash(git config:*)",
+      "Bash(source:*)",
+      "Bash(pip:*)",
+      "Bash(uv pip uninstall:*)",
+      "Bash(.venv\\Scripts\\pip:*)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }

@@ -27,7 +27,7 @@ This project reproduces the PanGu Drug Model from "PanGu Drug Model: Learn a Mol
 # Process data
 ./bootstrap.sh --process     
 
-# Train model
+# Train model (GPU-ready)
 ./bootstrap.sh --train       
 
 # Launch TensorBoard
@@ -38,7 +38,7 @@ This project reproduces the PanGu Drug Model from "PanGu Drug Model: Learn a Mol
 ./bootstrap.sh --search --learning-rate 1e-4 5e-4 1e-3 --batch-size 32 64
 
 # Manual training with custom parameters
-python -m src.train --learning-rate 1e-3 --batch-size 64 --hidden-dim 512
+python -m src.train --learning-rate 1e-3 --batch-size 64 --hidden-dim 512 --device cuda
 ```
 
 ### Advanced Usage

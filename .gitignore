@@ -108,6 +108,7 @@ ehthumbs.db
 Thumbs.db
 
 # Data files
+data/processed_test/
 data/processed/
 data/raw/
 *_fail.uri
@@ -123,3 +124,4 @@ models/
 /runs/*
 !/runs/.gitkeep
 checkpoints/
+data/temp_download.uri
