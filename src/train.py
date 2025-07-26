@@ -166,6 +166,10 @@ def train(config=None):
             'total_size_str': format_memory(total_size)
         }
 
+    # Calculate batch information
+    actual_batch_size = config.data.batch_size
+    effective_batch_size = actual_batch_size * gradient_accumulation_steps
+    
     # Calculate dataset information
     dataset_info = ""
     if use_streaming:
@@ -256,6 +260,17 @@ def train(config=None):
         print(f"    💾 Initial GPU Memory Usage: {initial_memory}")
 
     # --- Training Loop ---
+    
+    # --- Simplified Training Information ---
+    print("=" * 80)
+    print("🧬 PanGu Drug Model - Training Information")
+    print("=" * 80)
+    print(f"📊 DATASET: {'Streaming' if use_streaming else 'In-memory'}")
+    print(f"📦 BATCH: {config.data.batch_size} × {gradient_accumulation_steps} = {effective_batch_size} effective")
+    print(f"🧠 MODEL: {config.model.hidden_dim} hidden, {config.model.num_encoder_layers} encoder layers")
+    print(f"💾 DEVICE: {device}")
+    print(f"📁 PATHS: logs={config.paths.log_dir}, checkpoints={config.paths.checkpoint_path}")
+    print("=" * 80)
     
     for epoch in range(start_epoch, config.training.num_epochs):
         model.train()
