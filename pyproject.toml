@@ -3,7 +3,7 @@ name = "pangu-drug-model"
 version = "1.0.0"
 description = "PanGu Drug Model: Conditional VAE for 2D molecular graphs to SELFIES translation"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = [
     "torch>=2.6.0",
     "torchvision>=0.21.0",
@@ -45,16 +45,16 @@ build-backend = "hatchling.build"
 
 [tool.black]
 line-length = 88
-target-version = ['py312']
+target-version = ['py311']
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py311"
 line-length = 88
 select = ["E", "F", "W", "C90", "I", "N", "UP", "YTT", "S", "BLE", "FBT", "B", "A", "COM", "C4", "DTZ", "T10", "EM", "EXE", "FA", "ISC", "ICN", "G", "INP", "PIE", "T20", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SIM", "TID", "TCH", "ARG", "PTH", "ERA", "PD", "PGH", "PL", "TRY", "FLY", "NPY", "RUF"]
 ignore = ["S101", "COM812", "ISC001"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

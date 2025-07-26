@@ -1,0 +1,65 @@
+# Memory-Efficient Configuration for PanGu Drug Model
+# Use this config when GPU memory is limited
+
+# Data Configuration
+data:
+  dataset_path: "data/processed"
+  max_length: 128
+  batch_size: 8  # Very small batch size for memory-constrained GPUs
+  use_streaming: true  # Use streaming dataset to avoid loading all data
+  cache_in_memory: false  # Never cache data in memory
+
+# Model Architecture
+model:
+  # Encoder parameters (reduced for memory efficiency)
+  num_node_features: 6
+  hidden_dim: 128  # Reduced from 256
+  num_encoder_layers: 8  # Reduced from 10
+  num_encoder_heads: 4  # Reduced from 8
+  num_selected_layers: 8  # Number of encoder layers to concatenate for latent
+  
+  # Decoder parameters (reduced for memory efficiency)
+  num_decoder_layers: 4  # Reduced from 6
+  num_decoder_heads: 4  # Reduced from 8
+  latent_dim: 64  # Reduced from 128
+  
+  # Training parameters
+  output_dim: null  # Will be set based on vocabulary size
+
+# Training Configuration
+training:
+  learning_rate: 5e-4  # Slightly higher for smaller batches
+  num_epochs: 20
+  beta: 0.001  # KL divergence weight
+  gradient_clip: 1.0
+  gradient_accumulation_steps: 8  # 8 * 8 = 64 effective batch size
+
+# Paths
+paths:
+  log_dir: "runs/pangu_drug_model_memory_efficient"
+  checkpoint_path: "checkpoints/pangu_drug_model_memory_efficient.pt"
+
+# Evaluation Configuration
+evaluation:
+  num_samples: 50  # Reduced for memory efficiency
+  device: "cuda"
+
+# Optimization
+optimization:
+  warmup_steps: 1000
+  scheduler: "cosine"
+  weight_decay: 1e-4
+
+# System - Memory Optimizations
+system:
+  device: "cuda"
+  mixed_precision: true  # Enable automatic mixed precision (saves ~50% memory)
+  num_workers: 2  # Reduced workers to save memory
+  pin_memory: true
+  persistent_workers: false  # Disable to save memory
+  
+# Memory-specific settings
+memory:
+  clear_cache_frequency: 100  # Clear GPU cache every N batches
+  monitor_memory: true  # Log memory usage to TensorBoard
+  max_memory_gb: 8  # Warn if memory usage exceeds this threshold

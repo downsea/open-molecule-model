@@ -71,7 +71,7 @@ install_deps() {
   
   if [ ! -d "$VENV_DIR" ]; then
     echo "Creating virtual environment in $VENV_DIR..."
-    uv venv $VENV_DIR --python 3.12
+    uv venv $VENV_DIR --python 3.11
   fi
   
   echo "Installing PyTorch with CUDA 12.8..."

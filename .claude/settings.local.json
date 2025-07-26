@@ -16,7 +16,8 @@
       "Bash(pip:*)",
       "Bash(uv pip uninstall:*)",
       "Bash(.venv\\Scripts\\pip:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(bash:*)"
     ],
     "deny": []
   }

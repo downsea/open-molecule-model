@@ -73,6 +73,9 @@ python src/process_data.py
 # Train model with full configuration
 python -m src.train --config config.yaml
 
+# Train with memory-efficient configuration
+python -m src.train --config config_memory_efficient.yaml
+
 # View training progress
 tensorboard --logdir=runs
 
@@ -275,6 +278,8 @@ python -m src.evaluate --mode latent_space
 - **Evaluation System**: Multi-mode evaluation with comprehensive metrics
 - **Cross-Platform**: Windows (Git Bash/WSL) and Unix bash scripts
 - **Error Handling**: Failed download tracking and retry mechanisms
+- **Memory-Efficient Training**: Streaming datasets, gradient accumulation, and mixed precision
+- **Comprehensive Training Dashboard**: Detailed pre-training information display
 
 ### Technical Features
 - **8×256 Latent Matrix**: Proper concatenation from encoder layers 1,2,3,4,5,6,8,10
@@ -285,6 +290,8 @@ python -m src.evaluate --mode latent_space
 - **Checkpoint Management**: Automatic saving and loading of model states
 - **Download System**: Multi-threaded aria2-based data downloading with failure handling
 - **Cross-Platform**: Windows (Git Bash/WSL) and Unix shell support
+- **Memory Optimization**: Automatic mixed precision, gradient accumulation, and GPU memory monitoring
+- **Streaming Data Loading**: Memory-efficient dataset processing for large-scale training
 
 ## Download System
 

@@ -5,7 +5,9 @@
 data:
   dataset_path: "data/processed"
   max_length: 128
-  batch_size: 32
+  batch_size: 16  # Smaller batch size for memory efficiency
+  use_streaming: true  # Use streaming dataset to avoid loading all data
+  cache_in_memory: false  # Disable memory caching for large datasets
 
 # Model Architecture
 model:
@@ -30,6 +32,7 @@ training:
   num_epochs: 10
   beta: 0.001  # KL divergence weight
   gradient_clip: 1.0
+  gradient_accumulation_steps: 4  # Accumulate gradients for larger effective batch size
   
 # Paths
 paths:
@@ -50,5 +53,7 @@ optimization:
 # System
 system:
   device: "cuda"
-  mixed_precision: true
+  mixed_precision: true  # Enable automatic mixed precision
   num_workers: 4
+  pin_memory: true  # Pin memory for faster GPU transfer
+  persistent_workers: true  # Keep workers alive between epochs
