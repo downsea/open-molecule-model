@@ -203,7 +203,7 @@ download_data() {
 process_data() {
   echo "Processing data..."
   source $VENV_DIR/Scripts/activate
-  python src/process_data.py
+  python src/process_data.py --config $CONFIG_FILE
 }
 
 # Function to run training

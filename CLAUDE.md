@@ -13,6 +13,47 @@ This project reproduces the PanGu Drug Model from "PanGu Drug Model: Learn a Mol
 - **Latent Space**: 8×256 matrix from concatenated encoder layer outputs (layers 1,2,3,4,5,6,8,10)
 - **Training**: CVAE with ELBO loss (cross-entropy + KL divergence with β=0.001)
 
+## Logging System
+
+### Centralized Logging
+The project includes a comprehensive logging system (`src/logger.py`) with:
+- **File rotation** for large log files
+- **Task-specific logging** for different components
+- **Error tracking** with detailed stack traces
+- **Processing statistics** in JSON format
+- **Structured configuration logging** for reproducibility
+
+### Log Directory Structure
+```
+logs/
+├── processing/          # Data processing session logs
+├── training/            # Training session logs
+├── evaluation/          # Evaluation logs
+├── data_analysis/       # Data analysis logs
+├── errors/              # Error logs with stack traces
+└── PanGuDrugModel_YYYYMMDD.log  # Main application log
+```
+
+### Logging Usage Examples
+```python
+# In any module
+from src.logger import get_logger, setup_task_logger
+
+# Get global logger
+logger = get_logger()
+logger.log_info("Processing started", "data_processing")
+
+# Task-specific logger
+train_logger = setup_task_logger("training")
+train_logger.info("Training epoch 1/100")
+
+# Error logging with context
+try:
+    risky_operation()
+except Exception as e:
+    logger.log_error_details(e, "model_training")
+```
+
 ## Key Commands
 
 ### Development Workflow
@@ -214,16 +255,25 @@ src/
 ├── encoder.py            # Graph transformer encoder (10 layers, 8 heads)
 ├── decoder.py            # Transformer sequence decoder (6 layers, relative encoding)
 ├── data_loader.py        # ZINC dataset loading and processing
-├── process_data.py       # SMILES to graph conversion
+├── process_data.py       # SMILES to graph conversion with comprehensive logging
 ├── train.py             # Training script with config integration
 ├── evaluate.py          # Comprehensive evaluation system
 ├── config.py            # Configuration management system
+├── logger.py            # Centralized logging system with file rotation
 └── utils.py             # SELFIES processing utilities
 
 data/
 ├── raw/                 # Original SMI files from ZINC (1900+ files)
 ├── processed/           # PyTorch tensor files
 └── ZINC-downloader-2D-smi.uri  # List of SMI file URLs
+
+logs/                    # Centralized logging directory
+├── processing/          # Data processing logs
+├── training/            # Training session logs
+├── evaluation/          # Evaluation logs
+├── data_analysis/       # Data analysis logs
+├── errors/              # Error logs with detailed stack traces
+└── PanGuDrugModel_YYYYMMDD.log  # Main application log
 
 runs/                    # TensorBoard logs
 checkpoints/             # Model checkpoints

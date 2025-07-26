@@ -125,3 +125,6 @@ models/
 !/runs/.gitkeep
 checkpoints/
 data/temp_download.uri
+
+# log file
+logs/

@@ -1,13 +1,38 @@
 # PanGu Drug Model Configuration
-# Hyperparameters for hyperparameter search
+# Including data processing parameters
 
 # Data Configuration
 data:
   dataset_path: "data/processed"
   max_length: 128
-  batch_size: 16  # Smaller batch size for memory efficiency
+  batch_size: 32  # Standard batch size
   use_streaming: true  # Use streaming dataset to avoid loading all data
   cache_in_memory: false  # Disable memory caching for large datasets
+
+# Data Processing Configuration
+processing:
+  raw_data_path: "data/raw"
+  processed_data_path: "data/processed"
+  chunk_size: 5000  # Molecules per processing chunk
+  memory_limit_gb: 15.0
+  min_molecular_weight: 10.0
+  max_molecular_weight: 1000.0
+  allowed_atoms: ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I", "H"]
+  
+  # Parallel processing
+  num_workers: 8  # Number of parallel processing workers
+  use_multiprocessing: true
+  
+  # Split ratios
+  train_ratio: 0.8
+  val_ratio: 0.1
+  test_ratio: 0.1
+  
+  # Processing options
+  remove_salts: true
+  neutralize_charges: true
+  canonicalize: true
+  deduplicate: true
 
 # Model Architecture
 model:

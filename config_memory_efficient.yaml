@@ -9,6 +9,31 @@ data:
   use_streaming: true  # Use streaming dataset to avoid loading all data
   cache_in_memory: false  # Never cache data in memory
 
+# Data Processing Configuration
+processing:
+  raw_data_path: "data/raw"
+  processed_data_path: "data/processed"
+  chunk_size: 5000  # Smaller chunks for memory efficiency
+  memory_limit_gb: 15.0
+  min_molecular_weight: 10.0
+  max_molecular_weight: 1000.0
+  allowed_atoms: ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I", "H"]
+  
+  # Parallel processing
+  num_workers: 8  # Fewer workers to save memory
+  use_multiprocessing: true
+  
+  # Split ratios
+  train_ratio: 0.8
+  val_ratio: 0.1
+  test_ratio: 0.1
+  
+  # Processing options
+  remove_salts: true
+  neutralize_charges: true
+  canonicalize: true
+  deduplicate: true
+
 # Model Architecture
 model:
   # Encoder parameters (reduced for memory efficiency)
