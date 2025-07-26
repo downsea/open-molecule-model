@@ -1,6 +1,14 @@
-torch
-torchvision
-torchaudio
+# Specify the extra index URL for PyTorch CUDA 12.8 wheels.
+# This tells pip/uv to also look for packages at this URL in addition to PyPI.
+--extra-index-url https://download.pytorch.org/whl/cu128
+
+# Core PyTorch components - pinned to specific versions
+# (These versions are aligned with the stable 2.7.1 build for cu128)
+torch==2.7.1
+torchvision==0.22.1
+torchaudio==2.7.1
+
+# Other project dependencies
 pandas
 rdkit
 tqdm

@@ -70,11 +70,20 @@ python test_cuda.py
 # Process raw SMILES data
 python src/process_data.py
 
+# Run comprehensive data analysis
+python -m src.data_analysis --data-path data/processed --output-path data/data_report
+
+# Update configurations based on analysis
+python -m src.config_updater
+
 # Train model with full configuration
 python -m src.train --config config.yaml
 
 # Train with memory-efficient configuration
 python -m src.train --config config_memory_efficient.yaml
+
+# Train with analysis-optimized configuration
+python -m src.train --config config_updated.yaml
 
 # View training progress
 tensorboard --logdir=runs
