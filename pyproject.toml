@@ -1,0 +1,60 @@
+[project]
+name = "pangu-drug-model"
+version = "1.0.0"
+description = "PanGu Drug Model: Conditional VAE for 2D molecular graphs to SELFIES translation"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "torch>=2.6.0",
+    "torchvision>=0.21.0",
+    "torchaudio>=2.6.0",
+    "rdkit>=2023.9.1",
+    "selfies>=2.1.1",
+    "numpy>=1.26.0",
+    "pandas>=2.1.0",
+    "scikit-learn>=1.3.0",
+    "tqdm>=4.66.0",
+    "tensorboard>=2.15.0",
+    "pyyaml>=6.0",
+    "matplotlib>=3.8.0",
+    "seaborn>=0.13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.8.0",
+    "pre-commit>=3.5.0",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.black]
+line-length = 88
+target-version = ['py312']
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+select = ["E", "F", "W", "C90", "I", "N", "UP", "YTT", "S", "BLE", "FBT", "B", "A", "COM", "C4", "DTZ", "T10", "EM", "EXE", "FA", "ISC", "ICN", "G", "INP", "PIE", "T20", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SIM", "TID", "TCH", "ARG", "PTH", "ERA", "PD", "PGH", "PL", "TRY", "FLY", "NPY", "RUF"]
+ignore = ["S101", "COM812", "ISC001"]
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

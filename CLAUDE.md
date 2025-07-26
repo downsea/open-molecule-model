@@ -58,11 +58,14 @@ python hyperparameter_search.py --random-search --trials 50 --epochs 3
 
 ### Direct Commands
 ```bash
-# Activate virtual environment
-source .venv/Scripts/activate  
+# Install dependencies with uv sync (recommended)
+uv sync
 
-# Install dependencies
-uv pip install -r requirements.txt
+# Activate virtual environment
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# Test CUDA setup
+python test_cuda.py
 
 # Process raw SMILES data
 python src/process_data.py
@@ -225,10 +228,10 @@ hyperparameter_search/   # Hyperparameter search results
 
 ### Installation
 ```bash
-# Using uv (recommended)
-uv pip install -r requirements.txt
+# Using uv sync (recommended - automatically handles CUDA 12.8)
+uv sync
 
-# Using pip
+# Alternative: Using pip
 pip install -r requirements.txt
 ```
 

@@ -40,14 +40,55 @@ usage() {
 
 # Function to install dependencies
 install_deps() {
+  # Check if uv is available, if not try common Windows paths
+  if ! command -v uv &> /dev/null; then
+    echo "uv not found in PATH, trying common locations..."
+    
+    # Common Windows uv locations
+    if [ -f "/c/Users/$USER/AppData/Roaming/uv/uv.exe" ]; then
+      export PATH="/c/Users/$USER/AppData/Roaming/uv:$PATH"
+    elif [ -f "/d/app/Scoop/shims/uv.exe" ]; then
+      export PATH="/d/app/Scoop/shims:$PATH"
+    elif [ -f "/c/Program Files/uv/uv.exe" ]; then
+      export PATH="/c/Program Files/uv:$PATH"
+    elif command -v python &> /dev/null; then
+      echo "uv not found, using pip instead..."
+      if [ ! -d "$VENV_DIR" ]; then
+        echo "Creating virtual environment..."
+        python -m venv $VENV_DIR
+      fi
+      source $VENV_DIR/bin/activate 2>/dev/null || source $VENV_DIR/Scripts/activate
+      pip install -r requirements.txt
+      python test_cuda.py
+      echo "Installation complete with pip."
+      return 0
+    else
+      echo "Error: uv not found and python not available"
+      echo "Please install uv first: https://github.com/astral-sh/uv"
+      exit 1
+    fi
+  fi
+  
   if [ ! -d "$VENV_DIR" ]; then
     echo "Creating virtual environment in $VENV_DIR..."
-    uv venv $VENV_DIR
+    uv venv $VENV_DIR --python 3.12
   fi
-  echo "Activating virtual environment..."
-  source .venv/Scripts/activate
-  echo "Installing dependencies from requirements.txt..."
+  
+  echo "Installing PyTorch with CUDA 12.8..."
+  uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+  
+  echo "Installing PyTorch Geometric dependencies..."
+  # Install compatible versions that work with CUDA 12.8
+  uv pip install torch-geometric
+  uv pip install torch-scatter torch-sparse || echo "Warning: torch-scatter/torch-sparse installation failed, continuing..."
+  
+  echo "Installing remaining dependencies..."
   uv pip install -r requirements.txt
+  
+  echo "Testing CUDA setup..."
+  source $VENV_DIR/bin/activate 2>/dev/null || source $VENV_DIR/Scripts/activate
+  python test_cuda.py
+  
   echo "Installation complete."
 }
 
