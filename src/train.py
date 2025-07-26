@@ -171,14 +171,19 @@ def train(config=None):
     if use_streaming:
         dataset_info = f"Streaming mode enabled - processing {len(dataset.processed_files)} data files on-the-fly"
         total_samples = "Unknown (streaming)"
+        # For streaming datasets, we estimate steps based on file sizes
+        estimated_samples = 0
+        for file_path in dataset.processed_files:
+            try:
+                data = torch.load(file_path, weights_only=False)
+                estimated_samples += len(data)
+            except:
+                pass
+        total_steps_per_epoch = estimated_samples // config.data.batch_size // gradient_accumulation_steps
     else:
         total_samples = len(dataset)
         dataset_info = f"{total_samples:,} total samples loaded from {len(dataset.processed_files)} files"
-
-    # Calculate batch information
-    actual_batch_size = config.data.batch_size
-    effective_batch_size = actual_batch_size * gradient_accumulation_steps
-    total_steps_per_epoch = len(dataloader) // gradient_accumulation_steps
+        total_steps_per_epoch = len(dataloader) // gradient_accumulation_steps
     
     # Model size calculation
     model_info = get_model_size(model)
@@ -256,6 +261,10 @@ def train(config=None):
         model.train()
         total_loss = 0
         optimizer.zero_grad()
+        
+        # For streaming datasets, we can't get length, so we use a counter
+        step_count = 0
+        batch_count = 0
         
         progress_bar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{config.training.num_epochs}")
         for i, data in enumerate(progress_bar):
@@ -361,12 +370,16 @@ def train(config=None):
             total_loss += loss.item() * gradient_accumulation_steps
             progress_bar.set_postfix(loss=loss.item() * gradient_accumulation_steps)
 
+            # Update counters
+            step_count += 1
+            
             # --- TensorBoard Logging (per batch) ---
-            global_step = epoch * len(dataloader) + i // gradient_accumulation_steps
+            global_step = epoch * total_steps_per_epoch + batch_count
             if (i + 1) % gradient_accumulation_steps == 0:
                 writer.add_scalar('Loss/train_batch', loss.item() * gradient_accumulation_steps, global_step)
+                batch_count += 1
 
-        avg_loss = total_loss / len(dataloader)
+        avg_loss = total_loss / max(step_count, 1)
         print(f"Epoch {epoch+1}/{config.training.num_epochs}, Average Loss: {avg_loss:.4f}")
         
         # --- Memory Logging ---

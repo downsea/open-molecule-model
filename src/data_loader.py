@@ -89,6 +89,7 @@ class StreamingZINCDataset(IterableDataset):
     """Memory-efficient streaming dataset that loads data on-the-fly."""
     
     def __init__(self, root_dir, max_length=128, shuffle_files=True):
+        self.root_dir = root_dir
         self.processed_files = glob.glob(os.path.join(root_dir, '*.pt'))
         self.max_length = max_length
         self.shuffle_files = shuffle_files
