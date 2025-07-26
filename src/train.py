@@ -62,19 +62,12 @@ def train(config=None):
             max_length=config.data.max_length,
             shuffle_files=True
         )
-        # Create a custom batch function for streaming datasets
-        def stream_collate_fn(batch):
-            if not batch:
-                return None
-            # batch is a list of Data objects, use PyG's DataLoader to handle them
-            from torch_geometric.loader import DataLoader as PyGDataLoader
-            return PyGDataLoader(batch, batch_size=len(batch))
-            
-        dataloader = torch.utils.data.DataLoader(
+        # Use PyG's DataLoader for streaming datasets - it handles the batching
+        dataloader = DataLoader(
             dataset, 
             batch_size=config.data.batch_size,
-            num_workers=config.system.num_workers,
-            collate_fn=stream_collate_fn
+            num_workers=0,  # Disable multiprocessing for streaming on Windows
+            shuffle=False  # Streaming datasets handle their own shuffling
         )
     else:
         dataset = ZINC_Dataset(
