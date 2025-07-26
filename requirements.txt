@@ -9,3 +9,6 @@ torch_geometric
 tensorboard
 uv
 pyyaml
+matplotlib
+seaborn
+scikit-learn
