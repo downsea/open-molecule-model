@@ -120,6 +120,8 @@ models/
 /models/*
 !/models/.gitkeep
 /data/processed/*
+/data/standard/
+/data/data_report/*
 !/data/processed/.gitkeep
 /runs/*
 !/runs/.gitkeep

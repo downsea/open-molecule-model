@@ -20,3 +20,15 @@ pyyaml
 matplotlib
 seaborn
 scikit-learn
+
+# Performance optimization packages
+pybloom-live>=3.0.0  # High-performance Bloom filters for deduplication
+lz4>=4.0.0          # Fast compression for storage optimization
+psutil>=5.9.0       # System resource monitoring and optimization
+numpy>=1.24.0       # Vectorized operations (if not already installed)
+
+# Optional performance packages (install if available)
+# These provide additional performance benefits but are not required
+# numba>=0.58.0     # JIT compilation for numerical operations
+# cython>=3.0.0     # C extensions for performance-critical code
+# fastparquet>=0.8.0  # Fast parquet file operations

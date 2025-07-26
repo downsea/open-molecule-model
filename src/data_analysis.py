@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Comprehensive SMILES data analysis for PanGu Drug Model - Updated for new data structure
+Comprehensive SMILES data analysis for PanGu Drug Model - Optimized for Performance
 
 This module provides detailed analysis of processed molecular data including:
-- Molecular property distributions
-- Vocabulary analysis
-- Sequence length statistics
-- Chemical diversity metrics
+- Parallel molecular property distributions
+- Optimized vocabulary analysis
+- Streaming sequence length statistics
+- Chemical diversity metrics with caching
 - Data quality assessment
 - Training configuration recommendations
 """
@@ -22,13 +22,96 @@ from rdkit.Chem import Descriptors, rdMolDescriptors
 import selfies as sf
 import matplotlib.pyplot as plt
 import seaborn as sns
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Any
 from collections import Counter, defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing as mp
+from tqdm import tqdm
+import time
+import gc
+import psutil
 import warnings
 warnings.filterwarnings('ignore')
 
+# Set matplotlib backend for better performance
+import matplotlib
+matplotlib.use('Agg')
+
+def calculate_properties_chunk(smiles_chunk: List[str]) -> Dict[str, List[float]]:
+    """Calculate properties for a chunk of SMILES strings in parallel."""
+    properties = defaultdict(list)
+    
+    for smiles in smiles_chunk:
+        if not smiles:
+            continue
+        try:
+            mol = Chem.MolFromSmiles(smiles)
+            if mol is None:
+                continue
+                
+            properties['molecular_weight'].append(Descriptors.MolWt(mol))
+            properties['logp'].append(Descriptors.MolLogP(mol))
+            properties['num_atoms'].append(mol.GetNumAtoms())
+            properties['num_rings'].append(int(Chem.GetSSSR(mol)))
+            properties['num_aromatic_rings'].append(rdMolDescriptors.CalcNumAromaticRings(mol))
+            properties['num_donors'].append(rdMolDescriptors.CalcNumHBD(mol))
+            properties['num_acceptors'].append(rdMolDescriptors.CalcNumHBA(mol))
+            properties['tpsa'].append(Descriptors.TPSA(mol))
+            properties['qed'].append(Descriptors.qed(mol))
+            properties['num_rotatable_bonds'].append(rdMolDescriptors.CalcNumRotatableBonds(mol))
+        except Exception:
+            continue
+    
+    return dict(properties)
+
+def calculate_diversity_chunk(smiles_chunk: List[str]) -> Dict[str, Any]:
+    """Calculate diversity metrics for a chunk of SMILES strings."""
+    scaffolds = []
+    element_counts = Counter()
+    bond_counts = Counter()
+    ring_counts = []
+    aromatic_ring_counts = []
+    
+    for smiles in smiles_chunk:
+        if not smiles:
+            continue
+            
+        try:
+            mol = Chem.MolFromSmiles(smiles)
+            if mol is None:
+                continue
+                
+            # Element analysis
+            for atom in mol.GetAtoms():
+                element_counts[atom.GetSymbol()] += 1
+                
+            # Bond analysis
+            for bond in mol.GetBonds():
+                bond_type = str(bond.GetBondType())
+                bond_counts[bond_type] += 1
+                
+            # Ring analysis
+            ring_counts.append(int(Chem.GetSSSR(mol)))
+            aromatic_ring_counts.append(rdMolDescriptors.CalcNumAromaticRings(mol))
+            
+            # Scaffold analysis (Murcko scaffold)
+            scaffold = Chem.MurckoDecompose(mol)
+            if scaffold:
+                scaffold_smiles = Chem.MolToSmiles(scaffold)
+                scaffolds.append(scaffold_smiles)
+        except Exception:
+            continue
+    
+    return {
+        'scaffolds': scaffolds,
+        'element_counts': dict(element_counts),
+        'bond_counts': dict(bond_counts),
+        'ring_counts': ring_counts,
+        'aromatic_ring_counts': aromatic_ring_counts
+    }
+
 class SMILESDataAnalyzer:
-    """Comprehensive analyzer for processed molecular data."""
+    """Optimized analyzer for processed molecular data with parallel processing."""
     
     def __init__(self, data_path: str = "data/processed", output_path: str = "data/data_report"):
         self.data_path = data_path
@@ -43,127 +126,167 @@ class SMILESDataAnalyzer:
         
         # Chemical properties
         self.properties = defaultdict(list)
+        
+        # Performance settings
+        self.num_workers = min(mp.cpu_count(), 8)  # Limit to 8 workers max
+        self.chunk_size = 1000  # Molecules per chunk
+        self.use_streaming = True  # Use streaming for large datasets
+        
+        print(f"🚀 Initialized optimized analyzer with {self.num_workers} workers")
     
     def load_data(self) -> bool:
-        """Load processed data from train/val/test splits."""
-        print("📊 Loading processed data from train/val/test splits...")
+        """Load all processed data from processed molecules file."""
+        print("📊 Loading all processed data...")
         
-        # Load from all splits
-        splits = ['train', 'val', 'test']
-        total_molecules = 0
+        # Try to load from compressed file first
+        compressed_file = os.path.join(self.data_path, "processed_molecules.txt.lz4")
+        uncompressed_file = os.path.join(self.data_path, "processed_molecules.txt")
         
-        for split_name in splits:
-            split_path = os.path.join(self.data_path, split_name, f"{split_name}_molecules.pt")
-            
-            if not os.path.exists(split_path):
-                print(f"⚠️  {split_name} data not found at {split_path}")
-                continue
-            
+        smiles_list = []
+        
+        # Load compressed file if available
+        if os.path.exists(compressed_file):
             try:
-                print(f"📁 Loading {split_name} data...")
-                data = torch.load(split_path, weights_only=False)
-                
-                for mol in data:
-                    if mol is not None:
-                        self.molecules.append(mol)
-                        smiles = Chem.MolToSmiles(mol)
-                        self.smiles_list.append(smiles)
-                        
-                        # Generate SELFIES for vocabulary analysis
-                        try:
-                            selfies = sf.encoder(smiles)
-                            self.selfies_list.append(selfies)
-                        except:
-                            self.selfies_list.append(None)
-                        
-                        total_molecules += 1
-                            
+                print("📁 Loading from compressed file...")
+                import lz4.frame
+                with open(compressed_file, 'rb') as f:
+                    compressed_data = f.read()
+                decompressed_data = lz4.frame.decompress(compressed_data)
+                content = decompressed_data.decode('utf-8')
+                smiles_list = [line.strip() for line in content.split('\n') if line.strip()]
+                print(f"✅ Loaded {len(smiles_list):,} SMILES from compressed file")
             except Exception as e:
-                print(f"⚠️  Error loading {split_path}: {e}")
+                print(f"⚠️  Error loading compressed file: {e}")
+                smiles_list = []
+        
+        # Fallback to uncompressed file
+        if not smiles_list and os.path.exists(uncompressed_file):
+            print("📁 Loading from uncompressed file...")
+            with open(uncompressed_file, 'r', encoding='utf-8') as f:
+                smiles_list = [line.strip() for line in f if line.strip()]
+            print(f"✅ Loaded {len(smiles_list):,} SMILES from uncompressed file")
+        
+        if not smiles_list:
+            print("❌ No processed SMILES data found")
+            return False
+        
+        # Convert SMILES to molecules and generate SELFIES
+        total_molecules = 0
+        print("🔄 Converting SMILES to molecules and generating SELFIES...")
+        
+        for smiles in tqdm(smiles_list, desc="Processing SMILES"):
+            try:
+                mol = Chem.MolFromSmiles(smiles)
+                if mol is not None:
+                    self.molecules.append(mol)
+                    self.smiles_list.append(smiles)
+                    
+                    # Generate SELFIES for vocabulary analysis
+                    try:
+                        selfies = sf.encoder(smiles)
+                        self.selfies_list.append(selfies)
+                    except:
+                        self.selfies_list.append(None)
+                    
+                    total_molecules += 1
+            except Exception:
                 continue
         
         if total_molecules == 0:
-            print("❌ No molecules loaded from any split")
+            print("❌ No valid molecules loaded")
             return False
         
-        print(f"✅ Loaded {total_molecules:,} molecules from all splits")
+        print(f"✅ Loaded {total_molecules:,} valid molecules from processed data")
         
-        # Load summary
-        summary_path = os.path.join(self.data_path, "dataset_summary.json")
+        # Load processing summary if available
+        summary_path = os.path.join(self.data_path, "processing_summary.json")
         if os.path.exists(summary_path):
             with open(summary_path, 'r') as f:
                 self.dataset_summary = json.load(f)
-                print(f"📊 Dataset summary loaded:")
-                print(f"   Train: {self.dataset_summary.get('train_size', 0):,}")
-                print(f"   Val: {self.dataset_summary.get('val_size', 0):,}")
-                print(f"   Test: {self.dataset_summary.get('test_size', 0):,}")
+                print(f"📊 Processing summary loaded:")
+                print(f"   Total processed: {self.dataset_summary.get('total_processed_molecules', 0):,}")
+                print(f"   Processing time: {self.dataset_summary.get('processing_timestamp', 'Unknown')}")
         else:
             self.dataset_summary = {}
         
         return True
     
     def analyze_molecular_properties(self) -> Dict:
-        """Analyze molecular properties and distributions."""
-        print("🔬 Analyzing molecular properties...")
+        """Analyze molecular properties using parallel processing."""
+        print("🔬 Analyzing molecular properties with parallel processing...")
+        start_time = time.time()
         
-        properties = {
-            'molecular_weight': [],
-            'logp': [],
-            'num_atoms': [],
-            'num_rings': [],
-            'num_aromatic_rings': [],
-            'num_donors': [],
-            'num_acceptors': [],
-            'tpsa': [],
-            'qed': [],
-            'num_rotatable_bonds': []
-        }
+        if not self.molecules:
+            print("❌ No molecules to analyze")
+            return {}
         
+        # Convert molecules to SMILES for parallel processing (avoid pickling issues)
+        smiles_chunks = [
+            self.smiles_list[i:i + self.chunk_size]
+            for i in range(0, len(self.smiles_list), self.chunk_size)
+        ]
+        
+        print(f"📊 Processing {len(self.smiles_list):,} molecules in {len(smiles_chunks)} chunks using {self.num_workers} workers")
+        
+        # Process chunks in parallel
+        all_properties = defaultdict(list)
         valid_molecules = 0
-        for mol in self.molecules:
-            try:
-                if mol is None:
-                    continue
-                    
-                # Basic molecular descriptors
-                properties['molecular_weight'].append(Descriptors.MolWt(mol))
-                properties['logp'].append(Descriptors.MolLogP(mol))
-                properties['num_atoms'].append(mol.GetNumAtoms())
-                properties['num_rings'].append(Chem.GetSSSR(mol))
-                properties['num_aromatic_rings'].append(rdMolDescriptors.CalcNumAromaticRings(mol))
-                properties['num_donors'].append(rdMolDescriptors.CalcNumHBD(mol))
-                properties['num_acceptors'].append(rdMolDescriptors.CalcNumHBA(mol))
-                properties['tpsa'].append(Descriptors.TPSA(mol))
-                properties['qed'].append(Descriptors.qed(mol))
-                properties['num_rotatable_bonds'].append(rdMolDescriptors.CalcNumRotatableBonds(mol))
-                
-                valid_molecules += 1
-                
-            except Exception as e:
-                continue
-                
-        self.properties = properties
         
-        # Statistical summaries
+        with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
+            # Submit all chunks
+            futures = [
+                executor.submit(calculate_properties_chunk, chunk)
+                for chunk in smiles_chunks
+            ]
+            
+            # Collect results with progress bar
+            with tqdm(total=len(futures), desc="Property analysis", unit="chunk") as pbar:
+                for future in as_completed(futures):
+                    try:
+                        chunk_properties = future.result()
+                        
+                        # Merge results
+                        for prop_name, values in chunk_properties.items():
+                            all_properties[prop_name].extend(values)
+                            if prop_name == 'molecular_weight':  # Count valid molecules once
+                                valid_molecules += len(values)
+                        
+                        pbar.update(1)
+                        pbar.set_postfix({'valid_molecules': f"{valid_molecules:,}"})
+                        
+                    except Exception as e:
+                        print(f"⚠️  Error processing chunk: {e}")
+                        pbar.update(1)
+        
+        # Store properties for visualization
+        self.properties = dict(all_properties)
+        
+        # Calculate statistics using vectorized operations
         stats = {}
-        for prop_name, values in properties.items():
+        for prop_name, values in all_properties.items():
             if values:
+                values_array = np.array(values)
                 stats[prop_name] = {
-                    'mean': np.mean(values),
-                    'median': np.median(values),
-                    'std': np.std(values),
-                    'min': np.min(values),
-                    'max': np.max(values),
+                    'mean': float(np.mean(values_array)),
+                    'median': float(np.median(values_array)),
+                    'std': float(np.std(values_array)),
+                    'min': float(np.min(values_array)),
+                    'max': float(np.max(values_array)),
                     'percentiles': {
-                        '5th': np.percentile(values, 5),
-                        '25th': np.percentile(values, 25),
-                        '75th': np.percentile(values, 75),
-                        '95th': np.percentile(values, 95)
+                        '5th': float(np.percentile(values_array, 5)),
+                        '25th': float(np.percentile(values_array, 25)),
+                        '75th': float(np.percentile(values_array, 75)),
+                        '95th': float(np.percentile(values_array, 95))
                     }
                 }
         
+        processing_time = time.time() - start_time
+        molecules_per_second = valid_molecules / max(processing_time, 0.001)
+        
         self.results['molecular_properties'] = stats
-        print(f"✅ Analyzed properties for {valid_molecules:,} valid molecules")
+        print(f"✅ Analyzed properties for {valid_molecules:,} molecules in {processing_time:.1f}s")
+        print(f"⚡ Performance: {molecules_per_second:.0f} molecules/second")
+        
         return stats
     
     def analyze_vocabulary(self) -> Dict:
@@ -187,7 +310,7 @@ class SMILESDataAnalyzer:
         vocab_size = len(token_counts)
         
         # Sequence length analysis
-        sequence_lengths = [len(sf.split_selfies(s)) for s in valid_selfies]
+        sequence_lengths = [len(list(sf.split_selfies(s))) for s in valid_selfies]
         
         vocab_analysis = {
             'vocab_size': vocab_size,
@@ -213,55 +336,84 @@ class SMILESDataAnalyzer:
         return vocab_analysis
     
     def analyze_chemical_diversity(self) -> Dict:
-        """Analyze chemical diversity and scaffolds."""
-        print("🧪 Analyzing chemical diversity...")
+        """Analyze chemical diversity using parallel processing."""
+        print("🧪 Analyzing chemical diversity with parallel processing...")
+        start_time = time.time()
         
-        scaffolds = []
-        element_counts = Counter()
-        bond_counts = Counter()
-        ring_counts = []
-        aromatic_ring_counts = []
+        if not self.molecules:
+            print("❌ No molecules to analyze")
+            return {}
         
-        for mol in self.molecules:
-            if mol is None:
-                continue
-                
-            # Element analysis
-            for atom in mol.GetAtoms():
-                element_counts[atom.GetSymbol()] += 1
-                
-            # Bond analysis
-            for bond in mol.GetBonds():
-                bond_type = str(bond.GetBondType())
-                bond_counts[bond_type] += 1
-                
-            # Ring analysis
-            ring_counts.append(Chem.GetSSSR(mol))
-            aromatic_ring_counts.append(rdMolDescriptors.CalcNumAromaticRings(mol))
+        # Convert molecules to SMILES for parallel processing (avoid pickling issues)
+        smiles_chunks = [
+            self.smiles_list[i:i + self.chunk_size]
+            for i in range(0, len(self.smiles_list), self.chunk_size)
+        ]
+        
+        print(f"📊 Processing {len(self.smiles_list):,} molecules in {len(smiles_chunks)} chunks")
+        
+        # Process chunks in parallel
+        all_scaffolds = []
+        combined_element_counts = Counter()
+        combined_bond_counts = Counter()
+        all_ring_counts = []
+        all_aromatic_ring_counts = []
+        
+        with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
+            # Submit all chunks
+            futures = [
+                executor.submit(calculate_diversity_chunk, chunk)
+                for chunk in smiles_chunks
+            ]
             
-            # Scaffold analysis (Murcko scaffold)
-            try:
-                scaffold = Chem.MurckoDecompose(mol)
-                if scaffold:
-                    scaffold_smiles = Chem.MolToSmiles(scaffold)
-                    scaffolds.append(scaffold_smiles)
-            except:
-                continue
-                
-        scaffold_counts = Counter(scaffolds)
+            # Collect results with progress bar
+            with tqdm(total=len(futures), desc="Diversity analysis", unit="chunk") as pbar:
+                for future in as_completed(futures):
+                    try:
+                        chunk_result = future.result()
+                        
+                        # Merge results
+                        all_scaffolds.extend(chunk_result['scaffolds'])
+                        
+                        # Combine counters
+                        for element, count in chunk_result['element_counts'].items():
+                            combined_element_counts[element] += count
+                        
+                        for bond_type, count in chunk_result['bond_counts'].items():
+                            combined_bond_counts[bond_type] += count
+                        
+                        all_ring_counts.extend(chunk_result['ring_counts'])
+                        all_aromatic_ring_counts.extend(chunk_result['aromatic_ring_counts'])
+                        
+                        pbar.update(1)
+                        pbar.set_postfix({'scaffolds': f"{len(all_scaffolds):,}"})
+                        
+                    except Exception as e:
+                        print(f"⚠️  Error processing diversity chunk: {e}")
+                        pbar.update(1)
+        
+        # Calculate final statistics
+        scaffold_counts = Counter(all_scaffolds)
+        ring_distribution = Counter(all_ring_counts)
+        aromatic_ring_distribution = Counter(all_aromatic_ring_counts)
         
         diversity_analysis = {
             'unique_scaffolds': len(scaffold_counts),
             'most_common_scaffolds': scaffold_counts.most_common(15),
-            'element_distribution': dict(element_counts),
-            'bond_distribution': dict(bond_counts),
-            'ring_distribution': dict(Counter(ring_counts)),
-            'aromatic_ring_distribution': dict(Counter(aromatic_ring_counts)),
+            'element_distribution': dict(combined_element_counts),
+            'bond_distribution': dict(combined_bond_counts),
+            'ring_distribution': dict(ring_distribution),
+            'aromatic_ring_distribution': dict(aromatic_ring_distribution),
             'scaffold_diversity': len(scaffold_counts) / len(self.molecules) if self.molecules else 0
         }
         
+        processing_time = time.time() - start_time
+        molecules_per_second = len(self.molecules) / max(processing_time, 0.001)
+        
         self.results['chemical_diversity'] = diversity_analysis
-        print(f"✅ Analyzed chemical diversity: {len(scaffold_counts):,} unique scaffolds")
+        print(f"✅ Analyzed chemical diversity: {len(scaffold_counts):,} unique scaffolds in {processing_time:.1f}s")
+        print(f"⚡ Performance: {molecules_per_second:.0f} molecules/second")
+        
         return diversity_analysis
     
     def analyze_data_quality(self) -> Dict:
@@ -303,7 +455,7 @@ class SMILESDataAnalyzer:
             'unique_molecules': len(unique_smiles),
             'duplicate_rate': 1 - (len(unique_smiles) / valid_molecules) if valid_molecules > 0 else 0,
             'valid_selfies_rate': valid_selfies_count / valid_molecules if valid_molecules > 0 else 0,
-            'dataset_splits': self.dataset_summary
+            'processing_summary': self.dataset_summary
         }
         
         self.results['data_quality'] = quality_analysis
@@ -403,7 +555,7 @@ class SMILESDataAnalyzer:
         # 3. Sequence length distribution
         vocab_analysis = self.results.get('vocabulary', {})
         if vocab_analysis.get('sequence_length_stats'):
-            lengths = [len(sf.split_selfies(s)) for s in self.selfies_list if s is not None]
+            lengths = [len(list(sf.split_selfies(s))) for s in self.selfies_list if s is not None]
             axes[0, 2].hist(lengths, bins=50, alpha=0.7, color='salmon', edgecolor='black')
             axes[0, 2].set_title('SELFIES Sequence Length Distribution')
             axes[0, 2].set_xlabel('Sequence Length')
@@ -485,12 +637,11 @@ class SMILESDataAnalyzer:
             f.write(f"- **Vocabulary Size**: {vocab.get('vocab_size', 0):,}\n")
             f.write(f"- **Max Sequence Length**: {vocab.get('sequence_length_stats', {}).get('max', 0)}\n")
             
-            # Dataset splits
+            # Processing summary
             if 'dataset_splits' in quality:
                 splits = quality['dataset_splits']
-                f.write(f"- **Training Set**: {splits.get('train_size', 0):,} molecules\n")
-                f.write(f"- **Validation Set**: {splits.get('val_size', 0):,} molecules\n")
-                f.write(f"- **Test Set**: {splits.get('test_size', 0):,} molecules\n")
+                f.write(f"- **Total Processed**: {splits.get('total_processed_molecules', 0):,} molecules\n")
+                f.write(f"- **Processing Timestamp**: {splits.get('processing_timestamp', 'Unknown')}\n")
             
             # Molecular Properties
             f.write("\n## Molecular Properties\n\n")

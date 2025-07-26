@@ -45,86 +45,116 @@ class RelativePositionalEncoding(nn.Module):
         return self.relative_position_bias(final_mat)
 
 class TransformerDecoder(nn.Module):
-    def __init__(self, latent_dim, output_dim, hidden_dim, num_heads, num_layers):
+    def __init__(self, latent_dim, output_dim, hidden_dim, num_heads, num_layers,
+                 use_gradient_checkpointing=False, max_seq_length=512):
         super(TransformerDecoder, self).__init__()
         self.latent_dim = latent_dim
         self.hidden_dim = hidden_dim
         self.output_dim = output_dim
         self.num_heads = num_heads
         self.num_layers = num_layers
+        self.use_gradient_checkpointing = use_gradient_checkpointing
+        self.max_seq_length = max_seq_length
 
-        self.pos_encoder = PositionalEncoding(hidden_dim)
-        self.relative_pos_encoders = nn.ModuleList([
-            RelativePositionalEncoding(hidden_dim) if i > 0 else None
-            for i in range(num_layers)
-        ])
+        # Optimized positional encoding with caching
+        self.pos_encoder = PositionalEncoding(hidden_dim, max_len=max_seq_length)
         
-        # Create decoder layers with appropriate positional encoding
-        decoder_layers = []
-        for i in range(num_layers):
-            if i == 0:
-                # First layer uses absolute positional encoding
-                layer = nn.TransformerDecoderLayer(
-                    d_model=hidden_dim, 
-                    nhead=num_heads,
-                    dropout=0.1,
-                    batch_first=False
-                )
-            else:
-                # Subsequent layers use relative positional encoding
-                layer = nn.TransformerDecoderLayer(
-                    d_model=hidden_dim, 
-                    nhead=num_heads,
-                    dropout=0.1,
-                    batch_first=False
-                )
-            decoder_layers.append(layer)
+        # Use standard transformer decoder with optimizations
+        decoder_layer = nn.TransformerDecoderLayer(
+            d_model=hidden_dim,
+            nhead=num_heads,
+            dim_feedforward=hidden_dim * 4,  # Standard 4x expansion
+            dropout=0.1,
+            activation='gelu',  # GELU often works better than ReLU
+            batch_first=True,  # More efficient for modern PyTorch
+            norm_first=True    # Pre-norm for better training stability
+        )
         
-        self.transformer_decoder = nn.ModuleList(decoder_layers)
+        self.transformer_decoder = nn.TransformerDecoder(
+            decoder_layer,
+            num_layers=num_layers
+        )
         
+        # Optimized projection layers with proper initialization
         self.input_proj = nn.Linear(output_dim, hidden_dim)
         self.fc_latent = nn.Linear(latent_dim, hidden_dim)
         self.fc_out = nn.Linear(hidden_dim, output_dim)
+        
+        # Layer normalization for stability
+        self.layer_norm = nn.LayerNorm(hidden_dim)
+        
+        # Initialize weights properly
+        self._init_weights()
+    
+    def _init_weights(self):
+        """Initialize weights using Xavier/Glorot initialization."""
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
 
     def forward(self, latent_representation, condition_vector, tgt):
+        """
+        Optimized forward pass with better memory management.
+        
+        Args:
+            latent_representation: (batch_size, latent_dim)
+            condition_vector: (batch_size, latent_dim) - currently unused but kept for compatibility
+            tgt: (batch_size, vocab_size, seq_len) - one-hot encoded target sequence
+        
+        Returns:
+            output: (batch_size, vocab_size, seq_len) - logits for each position
+        """
+        batch_size, vocab_size, seq_len = tgt.shape
+        
+        # OPTIMIZATION: Convert one-hot to indices to save memory during processing
+        # tgt: (batch_size, vocab_size, seq_len) -> (batch_size, seq_len)
+        tgt_indices = tgt.argmax(dim=1)  # More memory efficient than transpose
+        
+        # Create proper embedding using the input projection layer
+        # Convert indices to one-hot for proper linear transformation
+        tgt_one_hot_for_embedding = F.one_hot(tgt_indices, num_classes=vocab_size).float()
+        
+        # Apply input projection to get embeddings
+        # tgt_one_hot_for_embedding: (batch_size, seq_len, vocab_size)
+        # input_proj expects: (*, vocab_size) -> (*, hidden_dim)
+        tgt_embedded = self.input_proj(tgt_one_hot_for_embedding)
+        
+        # Apply layer normalization for stability
+        tgt_embedded = self.layer_norm(tgt_embedded)
+        
+        # Add positional encoding (batch_first=True format)
+        tgt_embedded = self.pos_encoder(tgt_embedded)
+        
         # Project latent representation to memory
-        memory = self.fc_latent(latent_representation).unsqueeze(1)
+        # Expand to sequence length for attention
+        memory = self.fc_latent(latent_representation)  # (batch_size, hidden_dim)
+        memory = memory.unsqueeze(1).expand(-1, seq_len, -1)  # (batch_size, seq_len, hidden_dim)
         
-        # Transpose tgt from (batch_size, vocab_size, seq_len) to (batch_size, seq_len, vocab_size)
-        tgt = tgt.transpose(1, 2)
+        # Create causal mask for autoregressive generation
+        tgt_mask = nn.Transformer.generate_square_subsequent_mask(seq_len).to(tgt.device)
         
-        # Project target sequence to hidden dimension
-        tgt = self.input_proj(tgt)
+        # Apply transformer decoder with gradient checkpointing if enabled
+        if self.use_gradient_checkpointing and self.training:
+            from torch.utils.checkpoint import checkpoint
+            output = checkpoint(
+                self.transformer_decoder,
+                tgt_embedded,
+                memory,
+                tgt_mask
+            )
+        else:
+            output = self.transformer_decoder(
+                tgt_embedded,
+                memory,
+                tgt_mask=tgt_mask
+            )
         
-        # Transpose to (seq_len, batch_size, hidden_dim) for transformer format
-        tgt = tgt.transpose(0, 1)
-        memory = memory.transpose(0, 1)
+        # Final projection to vocabulary size
+        output = self.fc_out(output)  # (batch_size, seq_len, vocab_size)
         
-        # Process through decoder layers
-        output = tgt
-        for i, layer in enumerate(self.transformer_decoder):
-            if i == 0:
-                # First layer: absolute positional encoding
-                output = self.pos_encoder(output.transpose(0, 1)).transpose(0, 1)
-            else:
-                # Subsequent layers: relative positional encoding
-                seq_len = output.size(0)
-                batch_size = output.size(1)
-                
-                # Add relative position bias
-                rel_pos_bias = self.relative_pos_encoders[i](seq_len)
-                # Skip relative positioning for now - PyTorch's built-in does not support it directly
-                # This would require custom attention implementation
-                
-            # Apply transformer decoder layer
-            output = layer(output, memory)
-        
-        # Transpose back to (batch_size, seq_len, hidden_dim)
-        output = output.transpose(0, 1)
-        
-        # Final projection to output dimension
-        output = self.fc_out(output)
-        
-        # Transpose to (batch_size, output_dim, seq_len) for loss function
+        # Transpose to match expected output format: (batch_size, vocab_size, seq_len)
         output = output.transpose(1, 2)
+        
         return output

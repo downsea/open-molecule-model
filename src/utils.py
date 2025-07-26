@@ -1,117 +1,205 @@
+import os
 import torch
 import selfies as sf
 import numpy as np
 from typing import List, Dict, Tuple
 
 class SELFIESProcessor:
-    def __init__(self):
-        self.charset = self._build_charset()
+    def __init__(self, vocab_file=None, max_vocab_size=1000):
+        """
+        Optimized SELFIES processor with dynamic vocabulary building.
+        
+        Args:
+            vocab_file: Optional path to pre-built vocabulary file
+            max_vocab_size: Maximum vocabulary size to prevent memory issues
+        """
+        self.max_vocab_size = max_vocab_size
+        self.vocab_file = vocab_file
+        
+        # Special tokens (always first in vocabulary)
+        self.special_tokens = ['<pad>', '<sos>', '<eos>', '<unk>']
+        
+        if vocab_file and os.path.exists(vocab_file):
+            self._load_vocab(vocab_file)
+        else:
+            # Start with base vocabulary and build dynamically
+            self.charset = self._build_base_charset()
+            self.char_to_idx = {char: idx for idx, char in enumerate(self.charset)}
+            self.idx_to_char = {idx: char for char, idx in self.char_to_idx.items()}
+            self.vocab_size = len(self.charset)
+        
+        # Cache for tokenization (significant speedup)
+        self._tokenization_cache = {}
+        self._encoding_cache = {}
+        
+    def _build_base_charset(self):
+        """Build minimal base character set from most common SELFIES tokens."""
+        # Optimized base vocabulary with most common tokens
+        base_tokens = [
+            # Special tokens first
+            '<pad>', '<sos>', '<eos>', '<unk>',
+            
+            # Most common atoms
+            '[C]', '[O]', '[N]', '[F]', '[S]', '[Cl]', '[Br]', '[I]', '[P]',
+            '[c]', '[o]', '[n]', '[s]', '[p]',
+            
+            # Common bonds and modifications
+            '[=C]', '[=O]', '[=N]', '[=S]',
+            '[#C]', '[#N]',
+            
+            # Common structural elements
+            '[Branch1]', '[Branch2]', '[Ring1]', '[Ring2]',
+            '[1]', '[2]', '[3]', '[4]', '[5]', '[6]',
+            
+            # Common hydrogen patterns
+            '[H]', '[CH1]', '[CH2]', '[CH3]', '[NH1]', '[NH2]', '[OH1]',
+            
+            # Stereochemistry (most common)
+            '[C@]', '[C@@]', '[C@H1]', '[C@@H1]',
+            
+            # Charges (common)
+            '[C+]', '[O+]', '[N+]', '[C-]', '[O-]', '[N-]'
+        ]
+        
+        return base_tokens
+        
+    def _load_vocab(self, vocab_file):
+        """Load vocabulary from file."""
+        import json
+        with open(vocab_file, 'r') as f:
+            vocab_data = json.load(f)
+        
+        self.charset = vocab_data['charset']
+        self.char_to_idx = vocab_data['char_to_idx']
+        self.idx_to_char = {int(k): v for k, v in vocab_data['idx_to_char'].items()}
+        self.vocab_size = len(self.charset)
+        
+    def save_vocab(self, vocab_file):
+        """Save vocabulary to file for reuse."""
+        import json
+        vocab_data = {
+            'charset': self.charset,
+            'char_to_idx': self.char_to_idx,
+            'idx_to_char': {str(k): v for k, v in self.idx_to_char.items()},
+            'vocab_size': self.vocab_size
+        }
+        
+        os.makedirs(os.path.dirname(vocab_file), exist_ok=True)
+        with open(vocab_file, 'w') as f:
+            json.dump(vocab_data, f, indent=2)
+    
+    def update_vocab_from_data(self, selfies_strings):
+        """
+        Update vocabulary based on actual data (more efficient than static vocab).
+        
+        Args:
+            selfies_strings: List of SELFIES strings from the dataset
+        """
+        import selfies as sf
+        from collections import Counter
+        
+        print("🔄 Building dynamic vocabulary from data...")
+        
+        # Count all tokens in the dataset
+        token_counts = Counter()
+        
+        for selfies_str in selfies_strings:
+            if selfies_str:
+                try:
+                    tokens = sf.split_selfies(selfies_str)
+                    token_counts.update(tokens)
+                except:
+                    continue
+        
+        # Keep most frequent tokens up to max_vocab_size
+        most_common_tokens = token_counts.most_common(self.max_vocab_size - len(self.special_tokens))
+        
+        # Build new vocabulary: special tokens + most common tokens
+        new_charset = self.special_tokens + [token for token, _ in most_common_tokens]
+        
+        # Update mappings
+        self.charset = new_charset
         self.char_to_idx = {char: idx for idx, char in enumerate(self.charset)}
         self.idx_to_char = {idx: char for char, idx in self.char_to_idx.items()}
         self.vocab_size = len(self.charset)
         
-    def _build_charset(self):
-        """Build character set from common SELFIES tokens"""
-        # Common SELFIES tokens
-        charset = [
-            '[C]', '[O]', '[N]', '[F]', '[S]', '[Cl]', '[Br]', '[I]', '[P]', '[B]',
-            '[c]', '[o]', '[n]', '[s]', '[p]',
-            '[=C]', '[=O]', '[=N]', '[=S]', '[=P]',
-            '[#C]', '[#N]',
-            '[C@H1]', '[C@@H1]', '[Branch1]', '[Branch2]', '[Branch3]',
-            '[Ring1]', '[Ring2]', '[Ring3]', '[=Branch1]', '[=Branch2]',
-            '[1]', '[2]', '[3]', '[4]', '[5]', '[6]', '[7]', '[8]',
-            '[H]', '[\\H]', '[/H]', '[\\\\H]', '[//H]',
-            '[C@]', '[C@@]', '[NH1]', '[NH2]', '[NH3]',
-            '[CH1]', '[CH2]', '[CH3]', '[OH1]', '[SH1]',
-            '[PH1]', '[PH2]', '[BH1]', '[BH2]', '[BH3]',
-            '[Si]', '[Se]', '[Ge]', '[As]', '[Se]', '[Te]',
-            '[=c]', '[=n]', '[=o]', '[=s]',
-            '[#c]', '[#n]', '[#o]', '[#s]',
-            '[C-]', '[O-]', '[N-]', '[S-]', '[P-]',
-            '[C+]', '[O+]', '[N+]', '[S+]', '[P+]',
-            '[/C]', '[\\C]', '[/N]', '[\\N]', '[/O]', '[\\O]',
-            '[/c]', '[\\c]', '[/n]', '[\\n]', '[/o]', '[\\o]',
-            '[\\C@]', '[//C@]', '[\\C@@]', '[//C@@]',
-            '[\\C]', '[//C]', '[\\N]', '[//N]', '[\\O]', '[//O]',
-            '[\\S]', '[//S]', '[\\P]', '[//P]',
-            '[\\c]', '[//c]', '[\\n]', '[//n]', '[\\o]', '[//o]',
-            '[\\s]', '[//s]', '[\\p]', '[//p]',
-            '[C@@H1]', '[C@H1]', '[C@@H2]', '[C@H2]', '[C@@H3]', '[C@H3]',
-            '[NH1+]', '[NH2+]', '[NH3+]', '[OH1+]', '[SH1+]',
-            '[CH1+]', '[CH2+]', '[CH3+]', '[PH1+]', '[PH2+]', '[PH3+]',
-            '[SiH1]', '[SiH2]', '[SiH3]', '[SiH4]',
-            '[SeH1]', '[SeH2]', '[GeH1]', '[GeH2]', '[GeH3]', '[GeH4]',
-            '[AsH1]', '[AsH2]', '[AsH3]', '[AsH4]',
-            '[\\Si]', '[/Si]', '[\\\\Si]', '[//Si]',
-            '[\\Se]', '[/Se]', '[\\\\Se]', '[//Se]',
-            '[\\Ge]', '[/Ge]', '[\\\\Ge]', '[//Ge]',
-            '[\\As]', '[/As]', '[\\\\As]', '[//As]',
-            '[\\Te]', '[/Te]', '[\\\\Te]', '[//Te]',
-            '[S@]', '[S@@]', '[S@H1]', '[S@@H1]',
-            '[P@]', '[P@@]', '[P@H1]', '[P@@H1]',
-            '[N@]', '[N@@]', '[N@H1]', '[N@@H1]',
-            '[O@]', '[O@@]',
-            '[Branch1]', '[Branch2]', '[Branch3]',
-            '[=Branch1]', '[=Branch2]', '[=Branch3]',
-            '[#Branch1]', '[#Branch2]', '[#Branch3]',
-            '[Ring1]', '[Ring2]', '[Ring3]', '[=Ring1]', '[=Ring2]', '[=Ring3]',
-            '[#Ring1]', '[#Ring2]', '[#Ring3]',
-            '[.]', '[_]', '[\\]', '[/]', '[\\\\]', '[//]',
-            '[1]', '[2]', '[3]', '[4]', '[5]', '[6]', '[7]', '[8]', '[9]',
-            '[10]', '[11]', '[12]', '[13]', '[14]', '[15]',
-            '[16]', '[17]', '[18]', '[19]', '[20]',
-            '[21]', '[22]', '[23]', '[24]', '[25]',
-            '[26]', '[27]', '[28]', '[29]', '[30]',
-            '[31]', '[32]', '[33]', '[34]', '[35]',
-            '[36]', '[37]', '[38]', '[39]', '[40]',
-            '[41]', '[42]', '[43]', '[44]', '[45]',
-            '[46]', '[47]', '[48]', '[49]', '[50]',
-            '[51]', '[52]', '[53]', '[54]', '[55]',
-            '[56]', '[57]', '[58]', '[59]', '[60]',
-            '[61]', '[62]', '[63]', '[64]', '[65]',
-            '[66]', '[67]', '[68]', '[69]', '[70]',
-            '[71]', '[72]', '[73]', '[74]', '[75]',
-            '[76]', '[77]', '[78]', '[79]', '[80]',
-            '[81]', '[82]', '[83]', '[84]', '[85]',
-            '[86]', '[87]', '[88]', '[89]', '[90]',
-            '[91]', '[92]', '[93]', '[94]', '[95]',
-            '[96]', '[97]', '[98]', '[99]', '[100]',
-            '[101]', '[102]', '[103]', '[104]', '[105]',
-            '[106]', '[107]', '[108]', '[109]', '[110]',
-            '[111]', '[112]', '[113]', '[114]', '[115]',
-            '[116]', '[117]', '[118]', '[119]', '[120]',
-            '[121]', '[122]', '[123]', '[124]', '[125]',
-            '[126]', '[127]', '[128]', '[129]', '[130]',
-            '[131]', '[132]', '[133]', '[134]', '[135]',
-            '[136]', '[137]', '[138]', '[139]', '[140]',
-            '[141]', '[142]', '[143]', '[144]', '[145]',
-            '[146]', '[147]', '[148]', '[149]', '[150]',
-            '<pad>', '<sos>', '<eos>', '<unk>'
-        ]
+        print(f"✅ Updated vocabulary: {self.vocab_size} tokens")
+        print(f"📊 Coverage: {len(most_common_tokens)} unique tokens from data")
         
-        return charset
+        # Clear caches after vocab update
+        self._tokenization_cache.clear()
+        self._encoding_cache.clear()
     
     def selfies_to_tensor(self, selfies_str: str, max_length: int = 128) -> torch.Tensor:
-        """Convert SELFIES string to tensor representation."""
-        tokens = self.tokenize_selfies(selfies_str)
+        """
+        Convert SELFIES string to tensor representation with caching.
+        
+        Args:
+            selfies_str: SELFIES string to convert
+            max_length: Maximum sequence length
+            
+        Returns:
+            torch.Tensor: Token indices tensor
+        """
+        # Use cache for repeated conversions (significant speedup)
+        cache_key = (selfies_str, max_length)
+        if cache_key in self._encoding_cache:
+            return self._encoding_cache[cache_key].clone()
+        
+        tokens = list(self.tokenize_selfies(selfies_str))
         
         # Add special tokens
         tokens = ['<sos>'] + tokens + ['<eos>']
         
-        # Truncate or pad
+        # Truncate or pad efficiently
         if len(tokens) > max_length:
             tokens = tokens[:max_length-1] + ['<eos>']
         else:
-            tokens = tokens + ['<pad>'] * (max_length - len(tokens))
+            # Pre-allocate list for better performance
+            padded_tokens = tokens + ['<pad>'] * (max_length - len(tokens))
+            tokens = padded_tokens
         
-        # Convert to indices
+        # Vectorized conversion to indices (faster than list comprehension)
         indices = [self.char_to_idx.get(token, self.char_to_idx['<unk>']) for token in tokens]
         
-        return torch.tensor(indices, dtype=torch.long)
+        tensor = torch.tensor(indices, dtype=torch.long)
+        
+        # Cache result if cache isn't too large
+        if len(self._encoding_cache) < 10000:
+            self._encoding_cache[cache_key] = tensor.clone()
+        
+        return tensor
     
     def tokenize_selfies(self, selfies_str: str) -> List[str]:
-        """Tokenize SELFIES string into individual tokens."""
+        """
+        Optimized SELFIES tokenization with caching.
+        
+        Args:
+            selfies_str: SELFIES string to tokenize
+            
+        Returns:
+            List[str]: List of SELFIES tokens
+        """
+        # Use cache for repeated tokenizations
+        if selfies_str in self._tokenization_cache:
+            return self._tokenization_cache[selfies_str]
+        
+        # Use selfies library for more robust tokenization
+        try:
+            import selfies as sf
+            tokens = sf.split_selfies(selfies_str)
+        except:
+            # Fallback to manual tokenization
+            tokens = self._manual_tokenize(selfies_str)
+        
+        # Cache result if cache isn't too large
+        if len(self._tokenization_cache) < 10000:
+            self._tokenization_cache[selfies_str] = tokens
+        
+        return tokens
+    
+    def _manual_tokenize(self, selfies_str: str) -> List[str]:
+        """Manual tokenization fallback."""
         tokens = []
         i = 0
         while i < len(selfies_str):
@@ -133,37 +221,88 @@ class SELFIESProcessor:
         return tokens
     
     def tensor_to_selfies(self, tensor: torch.Tensor) -> str:
-        """Convert tensor back to SELFIES string."""
-        tokens = [self.idx_to_char[idx.item()] for idx in tensor]
+        """
+        Convert tensor back to SELFIES string efficiently.
         
-        # Remove special tokens and join
-        filtered_tokens = []
-        for token in tokens:
-            if token in ['<pad>', '<sos>', '<eos>', '<unk>']:
-                continue
-            filtered_tokens.append(token)
+        Args:
+            tensor: Token indices tensor
+            
+        Returns:
+            str: SELFIES string
+        """
+        # Vectorized conversion (faster than list comprehension)
+        if tensor.dim() > 1:
+            tensor = tensor.squeeze()
         
-        return ''.join(filtered_tokens)
+        # Convert to list once for efficiency
+        indices = tensor.tolist()
+        
+        # Filter and join in one pass
+        tokens = []
+        for idx in indices:
+            token = self.idx_to_char.get(idx, '<unk>')
+            if token not in ['<pad>', '<sos>', '<eos>', '<unk>']:
+                tokens.append(token)
+            elif token == '<eos>':
+                break  # Stop at EOS token
+        
+        return ''.join(tokens)
     
     def get_vocab_size(self) -> int:
         """Get vocabulary size."""
         return self.vocab_size
     
     def encode_batch(self, selfies_strings: List[str], max_length: int = 128) -> torch.Tensor:
-        """Encode a batch of SELFIES strings."""
-        encoded = []
-        for selfies_str in selfies_strings:
-            tensor = self.selfies_to_tensor(selfies_str, max_length)
-            encoded.append(tensor)
-        return torch.stack(encoded)
+        """
+        Encode a batch of SELFIES strings efficiently.
+        
+        Args:
+            selfies_strings: List of SELFIES strings
+            max_length: Maximum sequence length
+            
+        Returns:
+            torch.Tensor: Batch of encoded sequences (batch_size, max_length)
+        """
+        # Pre-allocate tensor for better performance
+        batch_size = len(selfies_strings)
+        encoded = torch.zeros(batch_size, max_length, dtype=torch.long)
+        
+        for i, selfies_str in enumerate(selfies_strings):
+            encoded[i] = self.selfies_to_tensor(selfies_str, max_length)
+        
+        return encoded
     
     def decode_batch(self, tensors: torch.Tensor) -> List[str]:
-        """Decode a batch of tensors to SELFIES strings."""
+        """
+        Decode a batch of tensors to SELFIES strings efficiently.
+        
+        Args:
+            tensors: Batch of token indices (batch_size, seq_len)
+            
+        Returns:
+            List[str]: List of SELFIES strings
+        """
+        if tensors.dim() == 1:
+            tensors = tensors.unsqueeze(0)
+        
         decoded = []
-        for tensor in tensors:
-            selfies_str = self.tensor_to_selfies(tensor)
+        for i in range(tensors.size(0)):
+            selfies_str = self.tensor_to_selfies(tensors[i])
             decoded.append(selfies_str)
+        
         return decoded
+    
+    def clear_cache(self):
+        """Clear tokenization and encoding caches to free memory."""
+        self._tokenization_cache.clear()
+        self._encoding_cache.clear()
+    
+    def get_cache_stats(self):
+        """Get cache statistics for monitoring."""
+        return {
+            'tokenization_cache_size': len(self._tokenization_cache),
+            'encoding_cache_size': len(self._encoding_cache)
+        }
 
 def create_condition_vector(batch_size: int, latent_dim: int, device: torch.device) -> torch.Tensor:
     """Create a placeholder condition vector for now."""

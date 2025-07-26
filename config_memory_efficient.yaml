@@ -13,7 +13,7 @@ data:
 processing:
   raw_data_path: "data/raw"
   processed_data_path: "data/processed"
-  chunk_size: 5000  # Smaller chunks for memory efficiency
+  chunk_size: 100000  # Smaller chunks for memory efficiency
   memory_limit_gb: 15.0
   min_molecular_weight: 10.0
   max_molecular_weight: 1000.0

@@ -13,23 +13,39 @@ CONFIG_FILE="config.yaml"
 
 # Function to display help message
 usage() {
-  echo "Usage: $0 [ -i | --install | -d | --download [URI_FILE] | -p | --process | -t | --train | -e | --evaluate | --analyze | -b | --board | -s | --search | -h | --help ]"
+  echo "Usage: $0 [ -i | --install | -d | --download [URI_FILE] | -p | --process | --standardize | -t | --train | -e | --evaluate | --analyze | --benchmark | -b | --board | -s | --search | -h | --help ]"
   echo "Options:"
   echo "  -i, --install     Install dependencies."
-  echo "  -d, --download    Download the ZINC dataset using aria2."
+  echo "  -d, --download    Download the ZINC dataset using aria2 with optimized settings."
   echo "                    Optionally specify URI file (default: data/ZINC-downloader-2D-smi.uri)"
-  echo "  -p, --process     Process the downloaded data."
-  echo "  -t, --train       Run the training script."
+  echo "  -p, --process     Basic processing: filter invalid SMILES and remove duplicates."
+  echo "                    Saves all valid unique SMILES to data/processed/"
+  echo "  --analyze         Analyze ALL processed data and generate comprehensive reports."
+  echo "                    Loads from data/processed/ and saves reports to data/data_report/"
+  echo "  --standardize     Apply config-based filters and create train/val/test splits."
+  echo "                    Loads from data/processed/ and saves to data/standard/"
+  echo "                    Optionally specify config file (default: config_optimized.yaml)"
+  echo "  -t, --train       Run the training script using standardized data."
   echo "  -e, --evaluate    Run the evaluation script."
-  echo "  --analyze         Run comprehensive data analysis and generate reports."
-  echo "  --analyze-update  Run analysis and auto-update configurations."
+  echo "  --benchmark       Run performance benchmark on processing pipeline."
   echo "  -b, --board       Launch TensorBoard."
   echo "  -s, --search      Run hyperparameter search."
   echo "  -h, --help        Display this help message."
   echo ""
+  echo "🔄 New Data Pipeline (Restructured):"
+  echo "  1. ./bootstrap.sh --download     # Download raw ZINC data → data/raw/"
+  echo "  2. ./bootstrap.sh --process      # Basic filter + dedup → data/processed/"
+  echo "  3. ./bootstrap.sh --analyze      # Analyze all data → data/data_report/"
+  echo "  4. ./bootstrap.sh --standardize  # Apply filters + split → data/standard/"
+  echo "  5. ./bootstrap.sh --train        # Train using standardized data"
+  echo ""
   echo "Examples:"
-  echo "  $0 --download                    # Download using default URI file"
+  echo "  $0 --download                    # Download using default URI file with optimizations"
   echo "  $0 --download custom.uri         # Download using custom URI file"
+  echo "  $0 --process                     # Basic processing (filter + dedup only)"
+  echo "  $0 --analyze                     # Analyze all processed molecules"
+  echo "  $0 --standardize config_optimized.yaml  # Create training data with filters"
+  echo "  $0 --benchmark                   # Run performance benchmark"
   echo ""
   echo "Training options:"
   echo "  --config FILE     Use specific config file (default: config.yaml)"
@@ -38,6 +54,13 @@ usage() {
   echo "  --hidden-dim HD   Hidden dimension"
   echo "  --epochs N        Number of epochs"
   echo "  --device DEVICE   Device (cuda/cpu)"
+  echo ""
+  echo "Performance features:"
+  echo "  🚀 Optimized aria2 downloads with system capability detection"
+  echo "  📊 Resource monitoring during processing and downloads"
+  echo "  ⚡ Performance benchmarking tools"
+  echo "  🔧 Automatic system optimization based on available resources"
+  echo "  🔄 Clean separation: basic processing → analysis → standardization → training"
 }
 
 # Function to install dependencies
@@ -94,9 +117,65 @@ install_deps() {
   echo "Installation complete."
 }
 
-# Function to download the ZINC dataset
+# Function to detect system capabilities
+detect_system_capabilities() {
+  # Detect CPU cores
+  if command -v nproc &> /dev/null; then
+    CPU_CORES=$(nproc)
+  elif [ -f /proc/cpuinfo ]; then
+    CPU_CORES=$(grep -c ^processor /proc/cpuinfo)
+  else
+    CPU_CORES=4
+  fi
+  
+  # Detect memory
+  if command -v free &> /dev/null; then
+    MEMORY_GB=$(free -g | awk '/^Mem:/{print $2}')
+  else
+    MEMORY_GB=8
+  fi
+  
+  # Calculate optimal settings
+  MAX_CONCURRENT=$((CPU_CORES * 2))
+  MAX_CONNECTIONS=$((CPU_CORES))
+  
+  # Limit based on memory
+  if [ "$MEMORY_GB" -lt 4 ]; then
+    MAX_CONCURRENT=$((MAX_CONCURRENT / 2))
+  fi
+  
+  echo "🖥️  System: ${CPU_CORES} cores, ${MEMORY_GB}GB RAM"
+  echo "⚙️  Optimized: ${MAX_CONCURRENT} concurrent downloads, ${MAX_CONNECTIONS} connections per server"
+}
+
+# Function to monitor system resources
+monitor_system_resources() {
+  local process_name="$1"
+  local log_file="$2"
+  local interval="${3:-30}"
+  
+  echo "📊 Starting resource monitoring (interval: ${interval}s)"
+  
+  while pgrep -f "$process_name" > /dev/null; do
+    {
+      echo "$(date '+%Y-%m-%d %H:%M:%S'): $(ps -o pid,pcpu,pmem,cmd -C "$process_name" --no-headers | head -1)"
+      if command -v free &> /dev/null; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S'): Memory: $(free | grep Mem | awk '{printf "%.1f%%", $3/$2 * 100.0}')"
+      fi
+      if command -v iostat &> /dev/null; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S'): I/O: $(iostat -d 1 1 | tail -n +4 | awk '{print $4 " " $5}' | head -1)"
+      fi
+    } >> "$log_file"
+    sleep "$interval"
+  done
+}
+
+# Enhanced download function with optimized aria2 settings
 download_data() {
-  echo "Downloading ZINC dataset..."
+  echo "🚀 Downloading ZINC dataset with optimized settings..."
+  
+  # Detect system capabilities
+  detect_system_capabilities
   
   # Default URI file
   URI_FILE="${1:-data/ZINC-downloader-2D-smi.uri}"
@@ -107,14 +186,14 @@ download_data() {
   
   # Check if URI file exists
   if [ ! -f "$URI_FILE" ]; then
-    echo "URI file not found: $URI_FILE"
+    echo "❌ URI file not found: $URI_FILE"
     echo "Please provide a valid URI file containing SMI file URLs"
     exit 1
   fi
   
   # Check if aria2c is installed
   if ! command -v aria2c &> /dev/null; then
-    echo "aria2c not found. Installing aria2..."
+    echo "📦 aria2c not found. Installing aria2..."
     
     # Try different installation methods
     if command -v apt-get &> /dev/null; then
@@ -123,21 +202,24 @@ download_data() {
       sudo yum install -y aria2
     elif command -v brew &> /dev/null; then
       brew install aria2
+    elif command -v scoop &> /dev/null; then
+      scoop install aria2
     else
-      echo "Please install aria2 manually: https://aria2.github.io/"
+      echo "❌ Please install aria2 manually: https://aria2.github.io/"
       exit 1
     fi
   fi
   
-  # Create timestamp for failed downloads log
+  # Create timestamp for logs
   DATE_TIME=$(date +"%Y%m%d_%H%M%S")
-  FAIL_FILE="$DATA_DIR/${DATE_TIME}_fail.uri"
+  FAIL_FILE="$DATA_DIR/${DATE_TIME}_failed.uri"
+  RESOURCE_LOG="$DATA_DIR/${DATE_TIME}_resources.log"
   
   # Create temporary URI file for files that need downloading
   TEMP_URI_FILE="$DATA_DIR/temp_download.uri"
   
   # Filter out already downloaded files
-  echo "Checking for existing files..."
+  echo "🔍 Checking for existing files..."
   > "$TEMP_URI_FILE"
   while IFS= read -r url; do
     if [[ -n "$url" && ! "$url" =~ ^# ]]; then
@@ -150,60 +232,208 @@ download_data() {
   done < "$URI_FILE"
   
   # Count files to download
-  FILES_TO_DOWNLOAD=$(wc -l < "$TEMP_URI_FILE")
-  TOTAL_FILES=$(grep -v '^#' "$URI_FILE" | grep -v '^$' | wc -l)
+  FILES_TO_DOWNLOAD=$(wc -l < "$TEMP_URI_FILE" 2>/dev/null || echo "0")
+  TOTAL_FILES=$(grep -v '^#' "$URI_FILE" | grep -v '^$' | wc -l 2>/dev/null || echo "0")
   EXISTING_FILES=$((TOTAL_FILES - FILES_TO_DOWNLOAD))
   
-  echo "Found $EXISTING_FILES existing files, $FILES_TO_DOWNLOAD files need to be downloaded."
+  echo "📊 Found $EXISTING_FILES existing files, $FILES_TO_DOWNLOAD files need to be downloaded."
   
   if [ "$FILES_TO_DOWNLOAD" -eq 0 ]; then
-    echo "All files already exist. Skipping download."
+    echo "✅ All files already exist. Skipping download."
     rm -f "$TEMP_URI_FILE"
     return 0
   fi
   
-  echo "Downloading $FILES_TO_DOWNLOAD SMI files..."
-  echo "Saving to: $DATA_DIR/raw/"
-  echo "Failed downloads will be logged to: $FAIL_FILE"
+  echo "⬇️  Downloading $FILES_TO_DOWNLOAD SMI files..."
+  echo "📁 Saving to: $DATA_DIR/raw/"
+  echo "📋 Failed downloads will be logged to: $FAIL_FILE"
+  echo "📊 Resource usage will be logged to: $RESOURCE_LOG"
   
-  # Use aria2 for multi-threaded download with filtered list
+  # Start resource monitoring in background
+  monitor_system_resources "aria2c" "$RESOURCE_LOG" 30 &
+  MONITOR_PID=$!
+  
+  # Use optimized aria2 settings
   aria2c --input-file="$TEMP_URI_FILE" \
          --dir="$DATA_DIR/raw" \
-         --max-concurrent-downloads=10 \
-         --max-connection-per-server=4 \
+         --max-concurrent-downloads="$MAX_CONCURRENT" \
+         --max-connection-per-server="$MAX_CONNECTIONS" \
+         --min-split-size=1M \
+         --split=4 \
          --continue=true \
-         --max-tries=3 \
-         --retry-wait=30 \
-         --timeout=60 \
-         --log-level=info \
-         --log="$DATA_DIR/download.log" \
-         --out="%f" \
+         --max-tries=5 \
+         --retry-wait=10 \
+         --timeout=30 \
+         --connect-timeout=10 \
+         --lowest-speed-limit=1K \
+         --max-overall-download-limit=0 \
+         --disk-cache=64M \
+         --file-allocation=falloc \
+         --log-level=notice \
+         --summary-interval=10 \
+         --download-result=full \
+         --log="$DATA_DIR/download_${DATE_TIME}.log" \
          --save-session="$FAIL_FILE" \
-         --save-session-interval=60 \
+         --save-session-interval=30 \
          --console-log-level=info
+  
+  # Stop resource monitoring
+  kill $MONITOR_PID 2>/dev/null || true
   
   # Clean up temporary file
   rm -f "$TEMP_URI_FILE"
   
-  echo "Download completed!"
+  echo "✅ Download completed!"
   
   # Check if any downloads failed
   if [ -f "$FAIL_FILE" ] && [ -s "$FAIL_FILE" ]; then
-    echo "Some downloads failed. Check $FAIL_FILE for failed URLs."
+    echo "⚠️  Some downloads failed. Check $FAIL_FILE for failed URLs."
     echo "Failed URLs:"
     cat "$FAIL_FILE"
   else
-    echo "All downloads completed successfully!"
+    echo "🎉 All downloads completed successfully!"
     # Clean up empty fail file
     rm -f "$FAIL_FILE"
   fi
+  
+  # Show resource usage summary
+  if [ -f "$RESOURCE_LOG" ]; then
+    echo "📊 Resource usage summary saved to: $RESOURCE_LOG"
+  fi
 }
 
-# Function to process the data
-process_data() {
-  echo "Processing data..."
+# Function to benchmark processing performance
+benchmark_processing() {
+  echo "🏃 Running performance benchmark..."
+  
+  local start_time=$(date +%s)
+  local test_file="$DATA_DIR/benchmark_test.smi"
+  local benchmark_size=10000
+  
+  # Create test dataset if it doesn't exist
+  if [ ! -f "$test_file" ]; then
+    echo "📝 Creating benchmark test file with $benchmark_size molecules..."
+    
+    # Find the first available SMI file
+    local source_file=$(find "$DATA_DIR/raw" -name "*.smi" -type f | head -1)
+    
+    if [ -z "$source_file" ]; then
+      echo "❌ No SMI files found for benchmarking"
+      return 1
+    fi
+    
+    head -n "$benchmark_size" "$source_file" > "$test_file" 2>/dev/null || {
+      echo "❌ Failed to create benchmark file"
+      return 1
+    }
+    
+    echo "✅ Created benchmark file with $(wc -l < "$test_file") molecules"
+  fi
+  
+  # Activate environment
   source $VENV_DIR/Scripts/activate
-  python src/process_data.py --config $CONFIG_FILE
+  
+  # Run benchmark
+  echo "⏱️  Running benchmark on $benchmark_size molecules..."
+  
+  python -c "
+import time
+import sys
+import os
+sys.path.append('src')
+
+try:
+    from process_data import DataProcessor
+    
+    print('🚀 Starting benchmark...')
+    start = time.time()
+    
+    # Create processor with benchmark config
+    processor = DataProcessor('$CONFIG_FILE')
+    
+    # Process test file
+    smiles_iterator = processor.load_and_parse_molecules_streaming('$test_file')
+    smiles_list = list(smiles_iterator)
+    
+    if smiles_list:
+        processed = processor.process_molecules_multiprocessing(smiles_list, 'benchmark')
+        end = time.time()
+        
+        duration = end - start
+        molecules_per_second = len(processed) / duration if duration > 0 else 0
+        
+        print(f'📊 Benchmark Results:')
+        print(f'   Processed: {len(processed):,} molecules')
+        print(f'   Duration: {duration:.1f} seconds')
+        print(f'   Speed: {molecules_per_second:.0f} molecules/second')
+        print(f'   Estimated time for 1M molecules: {1000000/molecules_per_second/60:.1f} minutes')
+        
+        # Save benchmark results
+        with open('$DATA_DIR/benchmark_results.txt', 'w') as f:
+            f.write(f'Benchmark Results ({time.strftime(\"%Y-%m-%d %H:%M:%S\")})\n')
+            f.write(f'Processed: {len(processed):,} molecules\n')
+            f.write(f'Duration: {duration:.1f} seconds\n')
+            f.write(f'Speed: {molecules_per_second:.0f} molecules/second\n')
+            f.write(f'Estimated 1M molecules: {1000000/molecules_per_second/60:.1f} minutes\n')
+    else:
+        print('❌ No molecules processed in benchmark')
+        
+except Exception as e:
+    print(f'❌ Benchmark failed: {e}')
+    sys.exit(1)
+"
+  
+  local end_time=$(date +%s)
+  local duration=$((end_time - start_time))
+  echo "✅ Benchmark completed in ${duration} seconds"
+  
+  if [ -f "$DATA_DIR/benchmark_results.txt" ]; then
+    echo "📋 Results saved to: $DATA_DIR/benchmark_results.txt"
+    cat "$DATA_DIR/benchmark_results.txt"
+  fi
+}
+
+# Enhanced processing function with resource management
+process_data() {
+  echo "🔄 Processing data with resource monitoring..."
+  
+  # Check available resources
+  detect_system_capabilities
+  
+  # Start resource monitoring
+  local start_time=$(date +%s)
+  local resource_log="$DATA_DIR/processing_resources_$(date +%Y%m%d_%H%M%S).log"
+  
+  # Activate virtual environment
+  source $VENV_DIR/Scripts/activate
+  
+  # Start resource monitoring in background
+  monitor_system_resources "python" "$resource_log" 60 &
+  local monitor_pid=$!
+  
+  # Run processing with error handling
+  if python src/process_data.py --config "$CONFIG_FILE"; then
+    local end_time=$(date +%s)
+    local duration=$((end_time - start_time))
+    
+    echo "✅ Processing completed successfully in ${duration} seconds"
+    
+    # Stop monitoring
+    kill $monitor_pid 2>/dev/null || true
+    
+    # Show resource summary
+    if [ -f "$resource_log" ]; then
+      echo "📊 Resource usage logged to: $resource_log"
+      echo "📈 Processing summary:"
+      echo "   Duration: ${duration} seconds"
+      echo "   Resource log: $resource_log"
+    fi
+    
+  else
+    echo "❌ Processing failed"
+    kill $monitor_pid 2>/dev/null || true
+    return 1
+  fi
 }
 
 # Function to run training
@@ -358,6 +588,18 @@ while [[ "$#" -gt 0 ]]; do
       echo "🔬 Running comprehensive data analysis..."
       source $VENV_DIR/Scripts/activate
       python -m src.data_analysis --data-path "data/processed" --output-path "data/data_report"
+      exit $?
+      ;;
+    --standardize)
+      shift
+      CONFIG_FILE="${1:-config_optimized.yaml}"
+      echo "🧪 Running data standardization with config: $CONFIG_FILE"
+      source $VENV_DIR/Scripts/activate
+      python -m src.data_standardize --config "$CONFIG_FILE"
+      exit $?
+      ;;
+    --benchmark)
+      benchmark_processing
       exit $?
       ;;
     -s|--search) 
