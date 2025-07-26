@@ -13,7 +13,7 @@ CONFIG_FILE="config.yaml"
 
 # Function to display help message
 usage() {
-  echo "Usage: $0 [ -i | --install | -d | --download [URI_FILE] | -p | --process | -t | --train | -e | --evaluate | -b | --board | -s | --search | -h | --help ]"
+  echo "Usage: $0 [ -i | --install | -d | --download [URI_FILE] | -p | --process | -t | --train | -e | --evaluate | --analyze | -b | --board | -s | --search | -h | --help ]"
   echo "Options:"
   echo "  -i, --install     Install dependencies."
   echo "  -d, --download    Download the ZINC dataset using aria2."
@@ -21,6 +21,8 @@ usage() {
   echo "  -p, --process     Process the downloaded data."
   echo "  -t, --train       Run the training script."
   echo "  -e, --evaluate    Run the evaluation script."
+  echo "  --analyze         Run comprehensive data analysis and generate reports."
+  echo "  --analyze-update  Run analysis and auto-update configurations."
   echo "  -b, --board       Launch TensorBoard."
   echo "  -s, --search      Run hyperparameter search."
   echo "  -h, --help        Display this help message."
@@ -352,12 +354,25 @@ while [[ "$#" -gt 0 ]]; do
       run_evaluate "$@"
       break
       ;;
+    --analyze)
+      echo "🔬 Running comprehensive data analysis..."
+      source $VENV_DIR/Scripts/activate
+      python -m src.data_analysis --data-path "data/processed" --output-path "data/data_report"
+      exit $?
+      ;;
     -s|--search) 
       shift
       run_search "$@"
       break
       ;;
     -b|--board) run_tensorboard; shift ;;
+    --analyze-update)
+      echo "🔬 Running data analysis and updating configurations..."
+      source $VENV_DIR/Scripts/activate
+      python -m src.data_analysis --data-path "data/processed" --output-path "data/data_report"
+      python -m src.config_updater
+      exit $?
+      ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown parameter passed: $1"; usage; exit 1 ;;
   esac

@@ -4,6 +4,7 @@ from torch_geometric.loader import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 import os
+import json
 import selfies as sf
 from torch.cuda.amp import GradScaler, autocast
 
@@ -85,6 +86,30 @@ def train(config=None):
     # Initialize SELFIES processor
     selfies_processor = SELFIESProcessor()
     config.model.output_dim = selfies_processor.get_vocab_size()
+    
+    # Load data analysis results if available
+    analysis_path = "data/data_report/analysis_results.json"
+    if os.path.exists(analysis_path):
+        print("📊 Loading data analysis results...")
+        with open(analysis_path, 'r') as f:
+            analysis = json.load(f)
+            
+        # Use analysis recommendations if available
+        recommendations = analysis.get('recommendations', {})
+        if recommendations:
+            original_batch = config.data.batch_size
+            config.data.batch_size = recommendations.get('batch_size', config.data.batch_size)
+            config.data.max_length = recommendations.get('max_sequence_length', config.data.max_length)
+            config.training.num_epochs = recommendations.get('num_epochs', config.training.num_epochs)
+            
+            if original_batch != config.data.batch_size:
+                print(f"⚙️  Updated batch size from analysis: {original_batch} → {config.data.batch_size}")
+            if config.data.max_length != 128:
+                print(f"⚙️  Updated max length from analysis: {config.data.max_length}")
+            if config.training.num_epochs != 10:
+                print(f"⚙️  Updated epochs from analysis: {config.training.num_epochs}")
+    else:
+        print("⚠️  No data analysis found. Run './bootstrap.sh --analyze' to generate analysis.")
     
     # --- Model ---
     model = PanGuDrugModel(
