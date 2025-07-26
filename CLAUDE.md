@@ -67,8 +67,9 @@ source .venv/bin/activate  # Windows: .venv\Scripts\activate
 # Test CUDA setup
 python test_cuda.py
 
-# Process raw SMILES data
-python src/process_data.py
+# Process raw SMILES data (memory-efficient for large datasets)
+python src/process_data.py --chunk-size 10000
+python src/process_data.py --raw-path data/raw --processed-path data/processed --chunk-size 5000
 
 # Run comprehensive data analysis
 python -m src.data_analysis --data-path data/processed --output-path data/data_report
@@ -300,7 +301,9 @@ python -m src.evaluate --mode latent_space
 - **Download System**: Multi-threaded aria2-based data downloading with failure handling
 - **Cross-Platform**: Windows (Git Bash/WSL) and Unix shell support
 - **Memory Optimization**: Automatic mixed precision, gradient accumulation, and GPU memory monitoring
-- **Streaming Data Loading**: Memory-efficient dataset processing for large-scale training
+- **Streaming Data Processing**: Memory-efficient processing for 50GB+ datasets
+- **Chunk-based Processing**: Configurable chunk sizes for memory constraints
+- **Disk-based Deduplication**: SQLite-based deduplication for large datasets
 
 ## Download System
 
