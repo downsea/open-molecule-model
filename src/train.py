@@ -57,16 +57,24 @@ def train(config=None):
     cache_in_memory = getattr(config.data, 'cache_in_memory', False)
     
     if use_streaming:
-        from torch.utils.data import DataLoader as TorchDataLoader
         dataset = StreamingZINCDataset(
             config.data.dataset_path,
             max_length=config.data.max_length,
             shuffle_files=True
         )
-        dataloader = TorchDataLoader(
+        # Create a custom batch function for streaming datasets
+        def stream_collate_fn(batch):
+            if not batch:
+                return None
+            # batch is a list of Data objects, use PyG's DataLoader to handle them
+            from torch_geometric.loader import DataLoader as PyGDataLoader
+            return PyGDataLoader(batch, batch_size=len(batch))
+            
+        dataloader = torch.utils.data.DataLoader(
             dataset, 
             batch_size=config.data.batch_size,
-            num_workers=config.system.num_workers
+            num_workers=config.system.num_workers,
+            collate_fn=stream_collate_fn
         )
     else:
         dataset = ZINC_Dataset(
