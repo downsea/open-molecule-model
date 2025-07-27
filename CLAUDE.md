@@ -153,7 +153,10 @@ python -m src.evaluate --mode generation --num-samples 50
    - Apply config-based molecular filters (MW, atoms, standardization)
    - Split into train/val/test sets (80/10/10)
    - Save training-ready data → `data/standard/`
-5. **Training**: Uses standardized data from `data/standard/`
+5. **Training**: Uses standardized data splits:
+   - **Training data**: `data/standard/train/` for model training
+   - **Validation data**: `data/standard/val/` for early stopping and hyperparameter tuning
+   - **Test data**: `data/standard/test/` for final model evaluation
 
 ### Pipeline Separation of Concerns
 - **`process_data.py`**: Basic validation + deduplication only
@@ -349,6 +352,7 @@ python -m src.evaluate --mode latent_space
 - **v3.0**: Comprehensive performance optimizations implemented
 - **v4.0**: Restructured data pipeline with clean separation of concerns
 - **LATEST**: Training working with 837,589 molecules, fixed import issues
+- **v4.1**: Fixed train/val/test data pipeline - proper ML workflow with separate datasets
 
 ## 🚀 Major Performance Optimizations (v2.0)
 

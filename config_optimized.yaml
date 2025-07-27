@@ -3,7 +3,10 @@
 
 # Data Configuration - Optimized for Performance
 data:
-  dataset_path: "data/standard"  # Use standardized data for training
+  dataset_path: "data/standard/train"  # Training dataset
+  train_dataset_path: "data/standard/train"
+  val_dataset_path: "data/standard/val"
+  test_dataset_path: "data/standard/test"
   max_length: 128
   batch_size: 64  # Increased for better GPU utilization
   use_streaming: true  # Essential for large datasets

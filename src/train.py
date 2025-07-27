@@ -187,16 +187,16 @@ def train(config=None):
     
     print("🔄 Setting up optimized data loading...")
     
+    # Load training dataset
     if use_streaming:
-        dataset = StreamingZINCDataset(
-            config.data.dataset_path,
+        train_dataset = StreamingZINCDataset(
+            config.data.train_dataset_path,
             max_length=config.data.max_length,
             shuffle_files=True,
             buffer_size=getattr(config.data, 'buffer_size', 1000)
         )
-        # Use optimized dataloader
-        dataloader = create_optimized_dataloader(
-            dataset,
+        train_dataloader = create_optimized_dataloader(
+            train_dataset,
             batch_size=config.data.batch_size,
             num_workers=0,  # Disable multiprocessing for streaming on Windows
             shuffle=False,  # Streaming datasets handle their own shuffling
@@ -204,16 +204,48 @@ def train(config=None):
             persistent_workers=False
         )
     else:
-        dataset = ZINC_Dataset(
-            config.data.dataset_path,
+        train_dataset = ZINC_Dataset(
+            config.data.train_dataset_path,
             max_length=config.data.max_length,
             cache_in_memory=cache_in_memory,
             precompute_features=True
         )
-        dataloader = create_optimized_dataloader(
-            dataset,
+        train_dataloader = create_optimized_dataloader(
+            train_dataset,
             batch_size=config.data.batch_size,
             shuffle=not cache_in_memory,
+            num_workers=config.system.num_workers,
+            pin_memory=getattr(config.system, 'pin_memory', True),
+            persistent_workers=getattr(config.system, 'persistent_workers', True)
+        )
+    
+    # Load validation dataset
+    if use_streaming:
+        val_dataset = StreamingZINCDataset(
+            config.data.val_dataset_path,
+            max_length=config.data.max_length,
+            shuffle_files=False,  # No shuffling for validation
+            buffer_size=getattr(config.data, 'buffer_size', 1000)
+        )
+        val_dataloader = create_optimized_dataloader(
+            val_dataset,
+            batch_size=config.data.batch_size,
+            num_workers=0,
+            shuffle=False,
+            pin_memory=getattr(config.system, 'pin_memory', True),
+            persistent_workers=False
+        )
+    else:
+        val_dataset = ZINC_Dataset(
+            config.data.val_dataset_path,
+            max_length=config.data.max_length,
+            cache_in_memory=cache_in_memory,
+            precompute_features=True
+        )
+        val_dataloader = create_optimized_dataloader(
+            val_dataset,
+            batch_size=config.data.batch_size,
+            shuffle=False,
             num_workers=config.system.num_workers,
             pin_memory=getattr(config.system, 'pin_memory', True),
             persistent_workers=getattr(config.system, 'persistent_workers', True)
@@ -224,13 +256,13 @@ def train(config=None):
     selfies_processor = SELFIESProcessor(max_vocab_size=2000)
     
     # Build vocabulary from data if needed
-    vocab_file = os.path.join(config.data.dataset_path, "selfies_vocab.json")
+    vocab_file = os.path.join(config.data.train_dataset_path, "selfies_vocab.json")
     if not os.path.exists(vocab_file):
-        print("🔄 Building vocabulary from dataset...")
+        print("🔄 Building vocabulary from training dataset...")
         # Sample some data to build vocabulary
         sample_selfies = []
         sample_count = 0
-        for batch in dataloader:
+        for batch in train_dataloader:
             if batch is not None and hasattr(batch, 'smiles'):
                 for smiles in batch.smiles[:10]:  # Sample 10 per batch
                     try:
@@ -316,8 +348,18 @@ def train(config=None):
         eps=1e-8
     )
 
+    # --- Early Stopping ---
+    early_stopping = EarlyStopping(
+        patience=getattr(config.training, 'early_stopping_patience', 15),
+        min_delta=1e-5,
+        restore_best_weights=True
+    )
+    
     # --- Advanced Learning Rate Scheduling ---
-    total_steps = len(dataloader) * config.training.num_epochs // getattr(config.training, 'gradient_accumulation_steps', 1)
+    # Calculate total steps after we have dataset information
+    total_steps_per_epoch = 1000  # Default fallback
+    val_steps_per_epoch = 100     # Default fallback
+    total_steps = max(1, total_steps_per_epoch * config.training.num_epochs)
     warmup_steps = getattr(config.optimization, 'warmup_steps', min(1000, total_steps // 10))
     
     scheduler = AdvancedLRScheduler(
@@ -326,13 +368,6 @@ def train(config=None):
         total_steps=total_steps,
         scheduler_type=getattr(config.optimization, 'scheduler', 'cosine'),
         min_lr_ratio=0.01
-    )
-    
-    # --- Early Stopping ---
-    early_stopping = EarlyStopping(
-        patience=getattr(config.training, 'early_stopping_patience', 15),
-        min_delta=1e-5,
-        restore_best_weights=True
     )
 
     # --- Mixed Precision Training ---
@@ -401,23 +436,29 @@ def train(config=None):
     effective_batch_size = actual_batch_size * gradient_accumulation_steps
     
     # Calculate dataset information
-    dataset_info = ""
-    if use_streaming:
-        dataset_info = f"Streaming mode enabled - processing {len(dataset.processed_files)} data files on-the-fly"
-        total_samples = "Unknown (streaming)"
-        # For streaming datasets, we estimate steps based on file sizes
-        estimated_samples = 0
-        for file_path in dataset.processed_files:
-            try:
-                data = torch.load(file_path, weights_only=False)
-                estimated_samples += len(data)
-            except:
-                pass
-        total_steps_per_epoch = estimated_samples // config.data.batch_size // gradient_accumulation_steps
-    else:
-        total_samples = len(dataset)
-        dataset_info = f"{total_samples:,} total samples loaded from {len(dataset.processed_files)} files"
-        total_steps_per_epoch = len(dataloader) // gradient_accumulation_steps
+    train_dataset_info = ""
+    val_dataset_info = ""
+
+    
+    try:
+        if use_streaming:
+            train_dataset_info = f"Training: Streaming mode - processing {len(train_dataset.processed_files)} files"
+            val_dataset_info = f"Validation: Streaming mode - processing {len(val_dataset.processed_files)} files"
+            
+            # Use estimated values for streaming mode
+            total_steps_per_epoch = max(1, 670071 // config.data.batch_size // gradient_accumulation_steps)
+            val_steps_per_epoch = max(1, 83759 // config.data.batch_size)
+        else:
+            train_samples = len(train_dataset)
+            val_samples = len(val_dataset)
+            train_dataset_info = f"Training: {train_samples:,} samples from {len(train_dataset.processed_files)} files"
+            val_dataset_info = f"Validation: {val_samples:,} samples from {len(val_dataset.processed_files)} files"
+            total_steps_per_epoch = max(1, len(train_dataloader) // gradient_accumulation_steps)
+            val_steps_per_epoch = max(1, len(val_dataloader))
+    except Exception as e:
+        print(f"Warning: Could not calculate exact steps, using defaults: {e}")
+        total_steps_per_epoch = 1000
+        val_steps_per_epoch = 100
     
     # Model size calculation
     model_info = get_model_size(model)
@@ -441,15 +482,18 @@ def train(config=None):
     ╚══════════════════════════════════════════════════════════════════════════════╝
     
     📁 DATASET INFORMATION:
-       Dataset Path: {config.data.dataset_path}
-       {dataset_info}
+       Training Path: {config.data.train_dataset_path}
+       Validation Path: {config.data.val_dataset_path}
+       {train_dataset_info}
+       {val_dataset_info}
        Max Sequence Length: {config.data.max_length}
        
     ⚙️  BATCH CONFIGURATION:
        Actual Batch Size: {actual_batch_size}
        Gradient Accumulation Steps: {gradient_accumulation_steps}
        Effective Batch Size: {effective_batch_size}
-       Steps per Epoch: {total_steps_per_epoch:,}
+       Training Steps per Epoch: {total_steps_per_epoch:,}
+       Validation Steps per Epoch: {val_steps_per_epoch:,}
        Total Epochs: {config.training.num_epochs}
        
     🧮 MODEL ARCHITECTURE:
@@ -507,11 +551,11 @@ def train(config=None):
         total_loss = 0
         optimizer.zero_grad()
         
-        # For streaming datasets, we can't get length, so we use a counter
+        # Initialize counters for this epoch
         step_count = 0
         batch_count = 0
         
-        progress_bar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{config.training.num_epochs}")
+        progress_bar = tqdm(train_dataloader, desc=f"Epoch {epoch+1}/{config.training.num_epochs}")
         for i, data in enumerate(progress_bar):
             if data is None:
                 continue
@@ -641,13 +685,83 @@ def train(config=None):
         # --- TensorBoard Logging (per epoch) ---
         writer.add_scalar('Loss/train_epoch_avg', avg_loss, epoch)
         
+        # --- Validation ---
+        model.eval()
+        val_loss = 0.0
+        val_step_count = 0
+        
+        print(f"Running validation...")
+        with torch.no_grad():
+            val_progress_bar = tqdm(val_dataloader, desc="Validation")
+            for data in val_progress_bar:
+                if data is None:
+                    continue
+                    
+                data = data.to(device)
+                batch_size = data.num_graphs if hasattr(data, 'num_graphs') else len(data)
+                
+                # Get SMILES strings from batch and convert to SELFIES
+                if hasattr(data, 'smiles'):
+                    smiles_strings = data.smiles
+                else:
+                    smiles_strings = [item.smiles for item in data]
+                
+                selfies_strings = [sf.encoder(smiles) for smiles in smiles_strings]
+                
+                # Encode SELFIES strings to tensors
+                target_tensors = selfies_processor.encode_batch(
+                    selfies_strings,
+                    max_length=config.data.max_length
+                )
+                target_tensors = target_tensors.to(device)
+                
+                # Create one-hot encoded targets for decoder
+                tgt_one_hot = F.one_hot(
+                    target_tensors[:, :-1],
+                    num_classes=config.model.output_dim
+                ).float()
+                tgt_one_hot = tgt_one_hot.transpose(1, 2)
+                
+                # Forward pass
+                condition_vector = create_condition_vector(
+                    batch_size,
+                    config.model.latent_dim,
+                    device
+                )
+                output, mean, log_var = model(data, condition_vector, tgt_one_hot)
+                
+                # Prepare targets for loss calculation
+                targets = target_tensors[:, 1:]
+                loss_dict = vae_loss(
+                    output,
+                    targets,
+                    mean,
+                    log_var,
+                    beta=config.training.beta
+                )
+                val_loss += loss_dict['total_loss'].item()
+                val_step_count += 1
+                
+                val_progress_bar.set_postfix(val_loss=loss_dict['total_loss'].item())
+        
+        avg_val_loss = val_loss / max(val_step_count, 1)
+        print(f"Validation Loss: {avg_val_loss:.4f}")
+        
+        # Log validation loss
+        writer.add_scalar('Loss/val_epoch_avg', avg_val_loss, epoch)
+        
+        # Early stopping check
+        if early_stopping(avg_val_loss, model):
+            print(f"Early stopping triggered at epoch {epoch+1}")
+            break
+        
         # --- Save Checkpoint ---
         save_checkpoint(
             model,
             optimizer,
             scheduler,
             epoch + 1,
-            avg_loss,
+            avg_val_loss,  # Use validation loss for checkpointing
             metrics,
             config.paths.checkpoint_path
         )

@@ -1,0 +1,74 @@
+# Stable Training Configuration - Prevents Loss Explosion
+# Conservative settings to ensure training stability
+
+data:
+  dataset_path: "data/standard"
+  train_dataset_path: "data/standard/train"
+  val_dataset_path: "data/standard/val"
+  test_dataset_path: "data/standard/test"
+  max_length: 200
+  batch_size: 64  # Reduced batch size for stability
+  use_streaming: false
+  cache_in_memory: true
+  prefetch_factor: 2
+  num_workers: 8
+
+model:
+  num_node_features: 6
+  hidden_dim: 256
+  num_encoder_layers: 8
+  num_encoder_heads: 8
+  num_selected_layers: 8
+  num_decoder_layers: 6
+  num_decoder_heads: 8
+  latent_dim: 128
+  dropout: 0.1
+
+# CONSERVATIVE TRAINING SETTINGS
+training:
+  learning_rate: 5e-6  # Much smaller learning rate
+  num_epochs: 100
+  beta: 0.0001  # Much smaller KL weight to start
+  gradient_clip: 0.1  # Aggressive gradient clipping
+  gradient_accumulation_steps: 4  # Accumulate gradients
+  
+  # Stability features
+  warmup_steps: 5000  # Longer warmup period
+  scheduler: "linear"  # Linear decay for stability
+  weight_decay: 1e-5  # Smaller weight decay
+  early_stopping_patience: 20
+  min_epochs: 10
+  
+  # Conservative optimizations
+  mixed_precision: false  # Disable AMP initially
+  compile_model: true  # Disable compilation for debugging
+  gradient_checkpointing: false 
+
+paths:
+  log_dir: "runs/pangu_stable"
+  checkpoint_path: "checkpoints/pangu_stable.pt"
+  best_model_path: "checkpoints/pangu_stable_best.pt"
+
+evaluation:
+  num_samples: 1000
+  device: "cuda" 
+  batch_size: 64
+
+system:
+  device: "cuda"
+  mixed_precision: false  # Start without AMP
+  num_workers: 8
+  pin_memory: true
+  persistent_workers: false
+  max_memory_gb: 10.0
+  memory_cleanup_interval: 50
+  log_gpu_memory: true
+
+logging:
+  level: "INFO"
+  log_interval: 50  # More frequent logging
+  save_interval: 500
+  eval_interval: 1000
+  track_gpu_memory: true
+  track_throughput: true
+  track_loss_components: true

@@ -22,7 +22,7 @@ class ZINC_Dataset(Dataset):
             precompute_features: Whether to precompute molecular features
             use_memory_mapping: Whether to use memory mapping for large files
         """
-        self.processed_files = glob.glob(os.path.join(root_dir, '*.pt'))
+        self.processed_files = glob.glob(os.path.join(root_dir, '**', '*.pt'), recursive=True)
         self.max_length = max_length
         self.cache_in_memory = cache_in_memory
         self.precompute_features = precompute_features
@@ -37,7 +37,7 @@ class ZINC_Dataset(Dataset):
             for file_path in tqdm(self.processed_files, desc="Loading files"):
                 file_data = torch.load(file_path, weights_only=False)
                 self.data.extend(file_data)
-            print(f"✅ Loaded {len(self.data)} molecules into memory")
+            print(f"Loaded {len(self.data)} molecules into memory")
         else:
             # Optimized lazy loading with better indexing
             self._build_file_index()
@@ -48,7 +48,7 @@ class ZINC_Dataset(Dataset):
 
     def _build_file_index(self):
         """Build efficient file index for lazy loading."""
-        print("🔍 Building file index...")
+        print("Building file index...")
         self.file_indices = []
         self.file_sizes = []
         self.cumulative_sizes = [0]
@@ -69,15 +69,15 @@ class ZINC_Dataset(Dataset):
                 del data
                 
             except Exception as e:
-                print(f"⚠️  Error loading {file_path}: {e}")
+                print(f"Warning: Error loading {file_path}: {e}")
                 continue
         
         self.total_samples = total_samples
-        print(f"✅ Indexed {len(self.file_indices)} files with {total_samples:,} molecules")
+        print(f"Indexed {len(self.file_indices)} files with {total_samples:,} molecules")
 
     def _precompute_features(self):
         """Pre-compute molecular features for faster access."""
-        print("⚡ Pre-computing molecular features...")
+        print("Pre-computing molecular features...")
         # This could be implemented to cache features on disk
         # For now, we'll compute them on-the-fly with caching
         pass
@@ -171,7 +171,7 @@ class ZINC_Dataset(Dataset):
             return data
             
         except Exception as e:
-            print(f"⚠️  Error processing molecule: {e}")
+            print(f"Warning: Error processing molecule: {e}")
             return None
     
     def clear_cache(self):
@@ -252,7 +252,7 @@ class StreamingZINCDataset(IterableDataset):
         else:
             self.estimated_size = 0
         
-        print(f"📊 Estimated dataset size: {self.estimated_size:,} molecules")
+        print(f"Estimated dataset size: {self.estimated_size:,} molecules")
     
     def __len__(self):
         """Return estimated dataset size for training step calculation."""
@@ -309,7 +309,7 @@ class StreamingZINCDataset(IterableDataset):
                 del file_data
                 
             except Exception as e:
-                print(f"⚠️  Error processing file {file_path}: {e}")
+                print(f"Warning: Error processing file {file_path}: {e}")
                 continue
         
         # Yield remaining items in buffer
@@ -383,7 +383,7 @@ def optimized_collate_fn(batch):
         batched_data = Batch.from_data_list(valid_batch)
         return batched_data
     except Exception as e:
-        print(f"⚠️  Error in collate function: {e}")
+        print(f"Warning: Error in collate function: {e}")
         return None
 
 def create_optimized_dataloader(dataset, batch_size, num_workers=0, shuffle=False,

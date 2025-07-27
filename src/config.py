@@ -7,6 +7,9 @@ from pathlib import Path
 @dataclass
 class DataConfig:
     dataset_path: str = "data/processed"
+    train_dataset_path: str = "data/standard/train"
+    val_dataset_path: str = "data/standard/val"
+    test_dataset_path: str = "data/standard/test"
     max_length: int = 128
     batch_size: int = 32
 

@@ -4,6 +4,9 @@
 # Data Configuration
 data:
   dataset_path: "data/processed"
+  train_dataset_path: "data/standard/train"
+  val_dataset_path: "data/standard/val"
+  test_dataset_path: "data/standard/test"
   max_length: 128
   batch_size: 32  # Standard batch size
   use_streaming: true  # Use streaming dataset to avoid loading all data

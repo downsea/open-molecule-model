@@ -17,7 +17,14 @@
       "Bash(uv pip uninstall:*)",
       "Bash(.venv\\Scripts\\pip:*)",
       "Bash(grep:*)",
-      "Bash(bash:*)"
+      "Bash(bash:*)",
+      "Bash(.venvScriptsactivate)",
+      "Bash(.venvScriptsactivate.bat)",
+      "Bash(ls:*)",
+      "Bash(.bootstrap.sh -e --config .config_stable.yaml)",
+      "Bash(find:*)",
+      "Bash(rg:*)",
+      "Bash(. .venv/Scripts/activate)"
     ],
     "deny": []
   }
