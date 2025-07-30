@@ -8,10 +8,22 @@ This project reproduces the PanGu Drug Model from "PanGu Drug Model: Learn a Mol
 
 ## Architecture
 
-- **Encoder**: Graph transformer with 10 layers, 256-dim hidden units, 8 attention heads
+### 100-Epoch Training Configuration
+| **Parameter** | **Value** |
+|---------------|-----------|
+| **Steps per Epoch** | 1,308 |
+| **Total Epochs** | 100 |
+| **Total Training Steps** | 1,046,900 |
+| **Training Time** | 3.094 days |
+| **Dataset Size** | 837,589 molecules |
+
+### Model Architecture
+- **Encoder**: Graph transformer with 8 layers, 256-dim hidden units, 8 attention heads
 - **Decoder**: Transformer-based sequence model with 6 layers (layer 1 absolute + layers 2-6 relative positional encoding)
-- **Latent Space**: 8×256 matrix from concatenated encoder layer outputs (layers 1,2,3,4,5,6,8,10)
-- **Training**: CVAE with ELBO loss (cross-entropy + KL divergence with β=0.001)
+- **Latent Space**: 8×128 matrix from concatenated encoder layer outputs
+- **Training**: CVAE with ELBO loss (cross-entropy + KL divergence with β=0.0001)
+- **Model Size**: 489.13 MB (128,156,967 parameters)
+- **Vocabulary**: 39 SELFIES tokens
 
 ## Logging System
 
@@ -351,7 +363,8 @@ python -m src.evaluate --mode latent_space
 - Git Bash/WSL support for Windows
 - **v3.0**: Comprehensive performance optimizations implemented
 - **v4.0**: Restructured data pipeline with clean separation of concerns
-- **LATEST**: Training working with 837,589 molecules, fixed import issues
+- **COMPLETE**: Successfully trained 100 epochs with 837,589 molecules
+- **LATEST**: 3.094-day training completed on RTX 3060 Ti with 128M parameters
 - **v4.1**: Fixed train/val/test data pipeline - proper ML workflow with separate datasets
 
 ## 🚀 Major Performance Optimizations (v2.0)
