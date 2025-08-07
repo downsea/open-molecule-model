@@ -244,8 +244,9 @@ class PanGuEvaluator:
                     z, mean, log_var = self.encode_molecule(data)
                     reconstructed_tensors = self.decode_molecule(z)
                 
-                # Get original SELFIES - batch encode for efficiency
-                original_selfies = [sf.encoder(smiles) for smiles in data.smiles]
+                # Get original SELFIES from data objects
+                original_selfies = [item.selfies if hasattr(item, 'selfies') and item.selfies is not None else "[C]" 
+                                  for item in data.to_data_list()]
                 original_tensors = self.selfies_processor.encode_batch(
                     original_selfies, 
                     max_length=self.config.data.max_length

@@ -14,16 +14,12 @@ data:
   prefetch_factor: 4  # Improved data loading pipeline
   num_workers: 8  # Parallel data loading
 
-# Data Processing Configuration - High Performance Settings
+# Data Processing Configuration - for basic processing (process_data.py)
 processing:
   raw_data_path: "data/raw"
   processed_data_path: "data/processed"
-  standard_data_path: "data/standard"  # Final standardized data for training
   chunk_size: 50000  # Optimized chunk size for memory/speed balance
   memory_limit_gb: 15.0
-  min_molecular_weight: 100.0  # Standard drug-like range
-  max_molecular_weight: 600.0
-  allowed_atoms: ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I", "H"]
   
   # High-Performance Parallel Processing
   num_workers: 8  # Utilize all available CPU cores
@@ -34,17 +30,29 @@ processing:
   use_compression: true  # Enable LZ4 compression for storage
   progress_update_interval: 1000  # Reduce progress bar overhead
   expected_molecules: 10000000  # For Bloom filter optimization
+
+# Data Standardization Configuration - High Performance Settings for molecular standardization (data_standardize.py)
+standardize:
+  standard_data_path: "data/standard"  # Final standardized data for training
+  min_molecular_weight: 100.0  # Standard drug-like range
+  max_molecular_weight: 600.0
+  allowed_atoms: ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I", "H"]
+  
+  # High-Performance Parallel Processing
+  num_workers: 8  # Utilize all available CPU cores
+  use_multiprocessing: true
   
   # Split ratios
   train_ratio: 0.8
   val_ratio: 0.1
   test_ratio: 0.1
   
-  # Processing options
+  # Standardization options
   remove_salts: true
   neutralize_charges: true
   canonicalize: true
-  deduplicate: true
+  chunk_size: 50000
+  progress_update_interval: 1000
 
 # Model Architecture - Optimized for Performance
 model:

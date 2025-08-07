@@ -54,6 +54,46 @@ evaluation:
   device: "cuda" 
   batch_size: 64
 
+# Data Processing Configuration - for basic processing (process_data.py)
+processing:
+  raw_data_path: "data/raw"
+  processed_data_path: "data/processed"
+  chunk_size: 50000  # Conservative chunk size
+  memory_limit_gb: 10.0
+  
+  # Conservative processing
+  num_workers: 8
+  use_multiprocessing: true
+  
+  # Basic processing options
+  use_compression: true
+  use_memory_mapping: false  # Disable for stability
+  progress_update_interval: 500
+  expected_molecules: 5000000
+
+# Data Standardization Configuration - for molecular standardization (data_standardize.py)
+standardize:
+  standard_data_path: "data/standard"
+  min_molecular_weight: 100.0  # Conservative drug-like range
+  max_molecular_weight: 600.0
+  allowed_atoms: ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I", "H"]
+  
+  # Conservative processing
+  num_workers: 8
+  use_multiprocessing: true
+  
+  # Split ratios
+  train_ratio: 0.8
+  val_ratio: 0.1
+  test_ratio: 0.1
+  
+  # Standardization options
+  remove_salts: true
+  neutralize_charges: true
+  canonicalize: true
+  chunk_size: 25000  # Conservative chunk size
+  progress_update_interval: 500
+
 system:
   device: "cuda"
   mixed_precision: false  # Start without AMP
