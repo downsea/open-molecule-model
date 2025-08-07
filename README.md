@@ -15,6 +15,46 @@ The PanGu Drug Model is a novel deep learning architecture using **graph-to-sequ
 
 ## 🧬 Model Architecture
 
+```mermaid
+graph TD
+    subgraph "Input"
+        A["<b>Molecular Graph Batch</b><br>Node Features: [N_batch, 39]"]
+    end
+
+    subgraph "Encoder - GAT"
+        B["<b>GATConv Layers</b><br><i>Params: 8 Layers, 8 Heads, 256 Hidden Dim</i><br>Output Shape: [N_batch, 256]"]
+        C["<b>Global Mean Pooling</b><br>Aggregates nodes for each graph<br>Output Shape: [B, 256]"]
+        D["<b>Linear Projection</b><br><i>Param: 128 Latent Dim</i><br>Produces mu & log_var"]
+        B --> C --> D
+    end
+
+    subgraph "Latent Space (Z)"
+        E["<b>mu</b><br>Shape: [B, 128]"]
+        F["<b>log_var</b><br>Shape: [B, 128]"]
+        G["<b>Reparameterization Trick</b><br>z = mu + exp(0.5*log_var)*eps<br>Output z Shape: [B, 128]"]
+        D --> E
+        D --> F
+        E --> G
+        F --> G
+    end
+
+    subgraph "Decoder - GRU"
+        H["<b>Latent Vector z</b><br>Used as initial GRU hidden state<br>Shape: [B, 128]"]
+        I["<b>GRU Layers</b><br><i>Params: 6 Layers, 256 Hidden Dim</i><br>Processes one token per step"]
+        J["<b>Linear Output Head</b><br><i>Param: 39 Vocab Size</i><br>Output Shape: [B, 39] per step"]
+        K["<b>Softmax</b><br>Generates token probabilities"]
+        H --> I --> J --> K
+    end
+
+    subgraph "Output"
+        L["<b>Generated SMILES String Batch</b><br>Shape: [B, max_seq_len]"]
+    end
+
+    A --> B
+    G --> H
+    K --> L
+```
+
 ### 100-Epoch Training Configuration
 | **Parameter** | **Value** |
 |---------------|-----------|
