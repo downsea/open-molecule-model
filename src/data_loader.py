@@ -164,9 +164,12 @@ class ZINC_Dataset(Dataset):
             
             # Cache SELFIES conversion to avoid repeated computation
             try:
-                data.selfies = sf.encoder(smiles)
-            except:
-                data.selfies = None
+                selfies_str = sf.encoder(smiles)
+                if selfies_str is None:
+                    selfies_str = "[C]"  # Default fallback
+                data.selfies = selfies_str
+            except Exception:
+                data.selfies = "[C]"  # Default fallback for invalid molecules
             
             return data
             
@@ -353,9 +356,12 @@ class StreamingZINCDataset(IterableDataset):
             
             # Efficient SELFIES encoding with error handling
             try:
-                data_obj.selfies = sf.encoder(smiles)
-            except:
-                data_obj.selfies = None
+                selfies_str = sf.encoder(smiles)
+                if selfies_str is None:
+                    selfies_str = "[C]"  # Default fallback
+                data_obj.selfies = selfies_str
+            except Exception:
+                data_obj.selfies = "[C]"  # Default fallback for invalid molecules
                 
             return data_obj
             
@@ -377,6 +383,11 @@ def optimized_collate_fn(batch):
     
     if not valid_batch:
         return None
+    
+    # Ensure all required attributes are present
+    for item in valid_batch:
+        if not hasattr(item, 'selfies') or item.selfies is None:
+            item.selfies = "[C]"  # Default fallback
     
     # Use PyG's built-in batching (more efficient than manual batching)
     try:
