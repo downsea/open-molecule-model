@@ -192,12 +192,48 @@ aria2c --input-file="data/ZINC-downloader-2D-smi.uri" \
 
 ## Configuration System
 
-### Configuration File (config.yaml)
-All tunable parameters are centralized in `config.yaml`:
+### Configuration System
+The project uses a **separated configuration system** with distinct sections for different processing stages:
 
+#### **Configuration File Structure**
+- **`processing`** section: Used by `process_data.py` for basic data processing
+- **`standardize`** section: Used by `data_standardize.py` for molecular standardization
+- **`data`** section: Used by training scripts
+
+#### **Configuration Examples**
+
+**Basic Processing (process_data.py):**
+```yaml
+# Data Processing Configuration - for basic processing (process_data.py)
+processing:
+  raw_data_path: "data/raw"
+  processed_data_path: "data/processed"
+  chunk_size: 100000
+  use_compression: true
+  use_memory_mapping: true
+  expected_molecules: 10000000
+```
+
+**Standardization (data_standardize.py):**
+```yaml
+# Data Standardization Configuration - for molecular standardization (data_standardize.py)
+standardize:
+  standard_data_path: "data/standard"
+  min_molecular_weight: 100.0
+  max_molecular_weight: 600.0
+  allowed_atoms: ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I", "H"]
+  train_ratio: 0.8
+  val_ratio: 0.1
+  test_ratio: 0.1
+  remove_salts: true
+  neutralize_charges: true
+  canonicalize: true
+```
+
+**Training Configuration:**
 ```yaml
 data:
-  dataset_path: "data/processed"
+  dataset_path: "data/standard/train"
   max_length: 128
   batch_size: 32
 
@@ -206,25 +242,12 @@ model:
   hidden_dim: 256
   num_encoder_layers: 10
   num_encoder_heads: 8
-  num_selected_layers: 8
-  num_decoder_layers: 6
-  num_decoder_heads: 8
   latent_dim: 128
 
 training:
   learning_rate: 1e-4
-  num_epochs: 10
+  num_epochs: 100
   beta: 0.001
-  gradient_clip: 1.0
-
-optimization:
-  warmup_steps: 1000
-  scheduler: "cosine"
-  weight_decay: 1e-4
-
-evaluation:
-  num_samples: 100
-  device: "cuda"
 ```
 
 ### Configuration Classes

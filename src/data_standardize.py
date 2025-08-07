@@ -58,31 +58,34 @@ class DataStandardizer:
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
         
-        self.processing_config = self.config.get('processing', {})
-        self.processed_data_path = self.processing_config.get('processed_data_path', 'data/processed')
-        self.standard_data_path = self.processing_config.get('standard_data_path', 'data/standard')
+        # Use standardize config section for standardization-specific parameters
+        self.standardize_config = self.config.get('standardize', {})
+        self.processing_config = self.config.get('processing', {})  # Still use processing for paths
         
-        # Filtering parameters from config
-        self.min_mw = self.processing_config.get('min_molecular_weight', 100.0)
-        self.max_mw = self.processing_config.get('max_molecular_weight', 600.0)
-        self.allowed_atoms = set(self.processing_config.get('allowed_atoms',
+        self.processed_data_path = self.processing_config.get('processed_data_path', 'data/processed')
+        self.standard_data_path = self.standardize_config.get('standard_data_path', 'data/standard')
+        
+        # Filtering parameters from standardize config
+        self.min_mw = self.standardize_config.get('min_molecular_weight', 100.0)
+        self.max_mw = self.standardize_config.get('max_molecular_weight', 600.0)
+        self.allowed_atoms = set(self.standardize_config.get('allowed_atoms',
             ['C', 'N', 'O', 'S', 'P', 'F', 'Cl', 'Br', 'I', 'H']))
-        self.num_workers = self.processing_config.get('num_workers', 8)
-        self.use_multiprocessing = self.processing_config.get('use_multiprocessing', True)
+        self.num_workers = self.standardize_config.get('num_workers', 8)
+        self.use_multiprocessing = self.standardize_config.get('use_multiprocessing', True)
         
         # Standardization options
-        self.remove_salts = self.processing_config.get('remove_salts', True)
-        self.neutralize_charges = self.processing_config.get('neutralize_charges', True)
-        self.canonicalize = self.processing_config.get('canonicalize', True)
+        self.remove_salts = self.standardize_config.get('remove_salts', True)
+        self.neutralize_charges = self.standardize_config.get('neutralize_charges', True)
+        self.canonicalize = self.standardize_config.get('canonicalize', True)
         
         # Split ratios
-        self.train_ratio = self.processing_config.get('train_ratio', 0.8)
-        self.val_ratio = self.processing_config.get('val_ratio', 0.1)
-        self.test_ratio = self.processing_config.get('test_ratio', 0.1)
+        self.train_ratio = self.standardize_config.get('train_ratio', 0.8)
+        self.val_ratio = self.standardize_config.get('val_ratio', 0.1)
+        self.test_ratio = self.standardize_config.get('test_ratio', 0.1)
         
         # Performance settings
-        self.chunk_size = self.processing_config.get('chunk_size', 50000)
-        self.progress_update_interval = self.processing_config.get('progress_update_interval', 1000)
+        self.chunk_size = self.standardize_config.get('chunk_size', 50000)
+        self.progress_update_interval = self.standardize_config.get('progress_update_interval', 1000)
         
         # Setup logging
         self.logger = logging.getLogger("data_standardizer")

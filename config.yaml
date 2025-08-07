@@ -12,18 +12,32 @@ data:
   use_streaming: true  # Use streaming dataset to avoid loading all data
   cache_in_memory: false  # Disable memory caching for large datasets
 
-# Data Processing Configuration
+# Data Processing Configuration - for basic processing (process_data.py)
 processing:
   raw_data_path: "data/raw"
   processed_data_path: "data/processed"
   chunk_size: 100000  # Molecules per processing chunk
   memory_limit_gb: 15.0
+  
+  # Parallel processing
+  num_workers: 8  # Number of parallel processing workers
+  use_multiprocessing: true
+  
+  # Basic processing options
+  use_compression: true
+  use_memory_mapping: true
+  progress_update_interval: 1000
+  expected_molecules: 10000000
+
+# Data Standardization Configuration - for molecular standardization (data_standardize.py)
+standardize:
+  standard_data_path: "data/standard"
   min_molecular_weight: 10.0
   max_molecular_weight: 1000.0
   allowed_atoms: ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I", "H"]
   
   # Parallel processing
-  num_workers: 8  # Number of parallel processing workers
+  num_workers: 8
   use_multiprocessing: true
   
   # Split ratios
@@ -31,11 +45,12 @@ processing:
   val_ratio: 0.1
   test_ratio: 0.1
   
-  # Processing options
+  # Standardization options
   remove_salts: true
   neutralize_charges: true
   canonicalize: true
-  deduplicate: true
+  chunk_size: 50000
+  progress_update_interval: 1000
 
 # Model Architecture
 model:

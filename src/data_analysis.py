@@ -118,6 +118,10 @@ class SMILESDataAnalyzer:
         self.output_path = output_path
         os.makedirs(output_path, exist_ok=True)
         
+        # Cache directory for intermediate results
+        self.cache_dir = os.path.join(output_path, "cache")
+        os.makedirs(self.cache_dir, exist_ok=True)
+        
         # Analysis results storage
         self.results = {}
         self.molecules = []
@@ -132,7 +136,16 @@ class SMILESDataAnalyzer:
         self.chunk_size = 1000  # Molecules per chunk
         self.use_streaming = True  # Use streaming for large datasets
         
+        # Checkpoint tracking
+        self.checkpoint_file = os.path.join(self.cache_dir, "analysis_checkpoint.json")
+        self.progress_file = os.path.join(self.cache_dir, "progress.json")
+        
+        # Load existing checkpoint if available
+        self.completed_steps = self._load_checkpoint()
+        
         print(f"🚀 Initialized optimized analyzer with {self.num_workers} workers")
+        if self.completed_steps:
+            print(f"📋 Resuming from checkpoint: {len(self.completed_steps)} steps completed")
     
     def load_data(self) -> bool:
         """Load all processed data from processed molecules file."""
@@ -211,8 +224,82 @@ class SMILESDataAnalyzer:
         
         return True
     
+    def _load_checkpoint(self) -> set:
+        """Load checkpoint data to resume analysis from interruption."""
+        if os.path.exists(self.checkpoint_file):
+            try:
+                with open(self.checkpoint_file, 'r') as f:
+                    checkpoint = json.load(f)
+                    return set(checkpoint.get('completed_steps', []))
+            except Exception as e:
+                print(f"⚠️  Error loading checkpoint: {e}")
+        return set()
+    
+    def _save_checkpoint(self, step: str, data: Any = None) -> None:
+        """Save checkpoint after completing each analysis step."""
+        self.completed_steps.add(step)
+        checkpoint = {
+            'completed_steps': list(self.completed_steps),
+            'timestamp': time.time(),
+            'step_data': data or {}
+        }
+        
+        try:
+            with open(self.checkpoint_file, 'w') as f:
+                json.dump(checkpoint, f, indent=2, default=str)
+        except Exception as e:
+            print(f"⚠️  Error saving checkpoint: {e}")
+    
+    def _save_intermediate_results(self, step_name: str, data: Any) -> None:
+        """Save intermediate results immediately to disk."""
+        step_file = os.path.join(self.cache_dir, f"{step_name}_results.json")
+        try:
+            with open(step_file, 'w') as f:
+                json.dump(data, f, indent=2, default=str)
+        except Exception as e:
+            print(f"⚠️  Error saving intermediate results for {step_name}: {e}")
+    
+    def _load_intermediate_results(self, step_name: str) -> Any:
+        """Load intermediate results from cache."""
+        step_file = os.path.join(self.cache_dir, f"{step_name}_results.json")
+        if os.path.exists(step_file):
+            try:
+                with open(step_file, 'r') as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"⚠️  Error loading intermediate results for {step_name}: {e}")
+        return None
+    
+    def _cache_data(self, data_name: str, data: Any) -> None:
+        """Cache data to disk for memory efficiency."""
+        cache_file = os.path.join(self.cache_dir, f"{data_name}_cache.pkl")
+        try:
+            torch.save(data, cache_file)
+        except Exception as e:
+            print(f"⚠️  Error caching data {data_name}: {e}")
+    
+    def _load_cached_data(self, data_name: str) -> Any:
+        """Load cached data from disk."""
+        cache_file = os.path.join(self.cache_dir, f"{data_name}_cache.pkl")
+        if os.path.exists(cache_file):
+            try:
+                return torch.load(cache_file)
+            except Exception as e:
+                print(f"⚠️  Error loading cached data {data_name}: {e}")
+        return None
+    
     def analyze_molecular_properties(self) -> Dict:
-        """Analyze molecular properties using parallel processing."""
+        """Analyze molecular properties using parallel processing with caching."""
+        step_name = "molecular_properties"
+        
+        # Check if already completed
+        if step_name in self.completed_steps:
+            print("📋 Molecular properties analysis already completed, loading from cache...")
+            cached_results = self._load_intermediate_results(step_name)
+            if cached_results:
+                self.results['molecular_properties'] = cached_results
+                return cached_results
+        
         print("🔬 Analyzing molecular properties with parallel processing...")
         start_time = time.time()
         
@@ -228,69 +315,132 @@ class SMILESDataAnalyzer:
         
         print(f"📊 Processing {len(self.smiles_list):,} molecules in {len(smiles_chunks)} chunks using {self.num_workers} workers")
         
-        # Process chunks in parallel
+        # Process chunks in parallel with progress checkpointing
         all_properties = defaultdict(list)
         valid_molecules = 0
         
-        with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
-            # Submit all chunks
-            futures = [
-                executor.submit(calculate_properties_chunk, chunk)
-                for chunk in smiles_chunks
-            ]
-            
-            # Collect results with progress bar
-            with tqdm(total=len(futures), desc="Property analysis", unit="chunk") as pbar:
-                for future in as_completed(futures):
-                    try:
-                        chunk_properties = future.result()
-                        
-                        # Merge results
-                        for prop_name, values in chunk_properties.items():
-                            all_properties[prop_name].extend(values)
-                            if prop_name == 'molecular_weight':  # Count valid molecules once
-                                valid_molecules += len(values)
-                        
-                        pbar.update(1)
-                        pbar.set_postfix({'valid_molecules': f"{valid_molecules:,}"})
-                        
-                    except Exception as e:
-                        print(f"⚠️  Error processing chunk: {e}")
-                        pbar.update(1)
+        # Resume from partial progress if available
+        progress_file = os.path.join(self.cache_dir, f"{step_name}_progress.json")
+        processed_chunks = set()
         
-        # Store properties for visualization
-        self.properties = dict(all_properties)
+        if os.path.exists(progress_file):
+            try:
+                with open(progress_file, 'r') as f:
+                    progress = json.load(f)
+                    processed_chunks = set(progress.get('processed_chunks', []))
+                    all_properties.update(progress.get('partial_results', {}))
+                    valid_molecules = progress.get('valid_molecules', 0)
+                    print(f"📋 Resuming molecular properties analysis from {len(processed_chunks)} processed chunks")
+            except Exception as e:
+                print(f"⚠️  Error loading progress: {e}")
+        
+        remaining_chunks = [
+            (i, chunk) for i, chunk in enumerate(smiles_chunks)
+            if i not in processed_chunks
+        ]
+        
+        if remaining_chunks:
+            with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
+                # Submit remaining chunks
+                futures = [
+                    executor.submit(calculate_properties_chunk, chunk)
+                    for _, chunk in remaining_chunks
+                ]
+                
+                # Collect results with progress checkpointing
+                with tqdm(total=len(remaining_chunks), desc="Property analysis", unit="chunk") as pbar:
+                    for chunk_idx, (original_idx, _) in enumerate(remaining_chunks):
+                        try:
+                            chunk_properties = futures[chunk_idx].result()
+                            
+                            # Merge results
+                            for prop_name, values in chunk_properties.items():
+                                all_properties[prop_name].extend(values)
+                                if prop_name == 'molecular_weight':  # Count valid molecules once
+                                    valid_molecules += len(values)
+                            
+                            # Save progress after each chunk
+                            processed_chunks.add(original_idx)
+                            progress_data = {
+                                'processed_chunks': list(processed_chunks),
+                                'partial_results': dict(all_properties),
+                                'valid_molecules': valid_molecules
+                            }
+                            
+                            try:
+                                with open(progress_file, 'w') as f:
+                                    json.dump(progress_data, f, indent=2, default=str)
+                            except Exception as e:
+                                print(f"⚠️  Error saving progress: {e}")
+                            
+                            pbar.update(1)
+                            pbar.set_postfix({'valid_molecules': f"{valid_molecules:,}"})
+                            
+                        except Exception as e:
+                            print(f"⚠️  Error processing chunk: {e}")
+                            pbar.update(1)
+        
+        # Clean up progress file
+        if os.path.exists(progress_file):
+            try:
+                os.remove(progress_file)
+            except Exception:
+                pass
         
         # Calculate statistics using vectorized operations
         stats = {}
         for prop_name, values in all_properties.items():
             if values:
-                values_array = np.array(values)
-                stats[prop_name] = {
-                    'mean': float(np.mean(values_array)),
-                    'median': float(np.median(values_array)),
-                    'std': float(np.std(values_array)),
-                    'min': float(np.min(values_array)),
-                    'max': float(np.max(values_array)),
-                    'percentiles': {
-                        '5th': float(np.percentile(values_array, 5)),
-                        '25th': float(np.percentile(values_array, 25)),
-                        '75th': float(np.percentile(values_array, 75)),
-                        '95th': float(np.percentile(values_array, 95))
+                try:
+                    values_array = np.array(values)
+                    stats[prop_name] = {
+                        'mean': float(np.mean(values_array)),
+                        'median': float(np.median(values_array)),
+                        'std': float(np.std(values_array)),
+                        'min': float(np.min(values_array)),
+                        'max': float(np.max(values_array)),
+                        'percentiles': {
+                            '5th': float(np.percentile(values_array, 5)),
+                            '25th': float(np.percentile(values_array, 25)),
+                            '75th': float(np.percentile(values_array, 75)),
+                            '95th': float(np.percentile(values_array, 95))
+                        }
                     }
-                }
+                except Exception as e:
+                    print(f"⚠️  Error calculating statistics for {prop_name}: {e}")
         
         processing_time = time.time() - start_time
         molecules_per_second = valid_molecules / max(processing_time, 0.001)
         
+        # Save results immediately
         self.results['molecular_properties'] = stats
+        self._save_intermediate_results(step_name, stats)
+        self._save_checkpoint(step_name, {
+            'valid_molecules': valid_molecules,
+            'processing_time': processing_time,
+            'molecules_per_second': molecules_per_second
+        })
+        
+        # Store properties for visualization
+        self.properties = dict(all_properties)
+        
         print(f"✅ Analyzed properties for {valid_molecules:,} molecules in {processing_time:.1f}s")
         print(f"⚡ Performance: {molecules_per_second:.0f} molecules/second")
         
         return stats
     
     def analyze_vocabulary(self) -> Dict:
-        """Analyze SELFIES vocabulary."""
+        """Analyze SELFIES vocabulary with caching."""
+        step_name = "vocabulary"
+        
+        # Check if already completed
+        if step_name in self.completed_steps:
+            print("📋 Vocabulary analysis already completed, loading from cache...")
+            cached_results = self._load_intermediate_results(step_name)
+            if cached_results:
+                self.results['vocabulary'] = cached_results
+                return cached_results
+        
         print("📝 Analyzing SELFIES vocabulary...")
         
         # Filter valid SELFIES
@@ -318,25 +468,39 @@ class SMILESDataAnalyzer:
             'unique_tokens': vocab_size,
             'most_common_tokens': token_counts.most_common(20),
             'sequence_length_stats': {
-                'mean': np.mean(sequence_lengths),
-                'median': np.median(sequence_lengths),
-                'min': np.min(sequence_lengths),
-                'max': np.max(sequence_lengths),
+                'mean': float(np.mean(sequence_lengths)),
+                'median': float(np.median(sequence_lengths)),
+                'min': int(np.min(sequence_lengths)),
+                'max': int(np.max(sequence_lengths)),
                 'percentiles': {
-                    '5th': np.percentile(sequence_lengths, 5),
-                    '95th': np.percentile(sequence_lengths, 95),
-                    '99th': np.percentile(sequence_lengths, 99)
+                    '5th': float(np.percentile(sequence_lengths, 5)),
+                    '95th': float(np.percentile(sequence_lengths, 95)),
+                    '99th': float(np.percentile(sequence_lengths, 99))
                 }
             },
             'token_frequency_distribution': dict(token_counts)
         }
         
+        # Save results immediately
         self.results['vocabulary'] = vocab_analysis
+        self._save_intermediate_results(step_name, vocab_analysis)
+        self._save_checkpoint(step_name)
+        
         print(f"✅ Analyzed vocabulary: {vocab_size:,} unique tokens")
         return vocab_analysis
     
     def analyze_chemical_diversity(self) -> Dict:
-        """Analyze chemical diversity using parallel processing."""
+        """Analyze chemical diversity using parallel processing with caching."""
+        step_name = "chemical_diversity"
+        
+        # Check if already completed
+        if step_name in self.completed_steps:
+            print("📋 Chemical diversity analysis already completed, loading from cache...")
+            cached_results = self._load_intermediate_results(step_name)
+            if cached_results:
+                self.results['chemical_diversity'] = cached_results
+                return cached_results
+        
         print("🧪 Analyzing chemical diversity with parallel processing...")
         start_time = time.time()
         
@@ -352,45 +516,93 @@ class SMILESDataAnalyzer:
         
         print(f"📊 Processing {len(self.smiles_list):,} molecules in {len(smiles_chunks)} chunks")
         
-        # Process chunks in parallel
+        # Process chunks in parallel with progress checkpointing
         all_scaffolds = []
         combined_element_counts = Counter()
         combined_bond_counts = Counter()
         all_ring_counts = []
         all_aromatic_ring_counts = []
         
-        with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
-            # Submit all chunks
-            futures = [
-                executor.submit(calculate_diversity_chunk, chunk)
-                for chunk in smiles_chunks
-            ]
-            
-            # Collect results with progress bar
-            with tqdm(total=len(futures), desc="Diversity analysis", unit="chunk") as pbar:
-                for future in as_completed(futures):
-                    try:
-                        chunk_result = future.result()
-                        
-                        # Merge results
-                        all_scaffolds.extend(chunk_result['scaffolds'])
-                        
-                        # Combine counters
-                        for element, count in chunk_result['element_counts'].items():
-                            combined_element_counts[element] += count
-                        
-                        for bond_type, count in chunk_result['bond_counts'].items():
-                            combined_bond_counts[bond_type] += count
-                        
-                        all_ring_counts.extend(chunk_result['ring_counts'])
-                        all_aromatic_ring_counts.extend(chunk_result['aromatic_ring_counts'])
-                        
-                        pbar.update(1)
-                        pbar.set_postfix({'scaffolds': f"{len(all_scaffolds):,}"})
-                        
-                    except Exception as e:
-                        print(f"⚠️  Error processing diversity chunk: {e}")
-                        pbar.update(1)
+        # Resume from partial progress if available
+        progress_file = os.path.join(self.cache_dir, f"{step_name}_progress.json")
+        processed_chunks = set()
+        
+        if os.path.exists(progress_file):
+            try:
+                with open(progress_file, 'r') as f:
+                    progress = json.load(f)
+                    processed_chunks = set(progress.get('processed_chunks', []))
+                    all_scaffolds.extend(progress.get('all_scaffolds', []))
+                    combined_element_counts.update(progress.get('element_counts', {}))
+                    combined_bond_counts.update(progress.get('bond_counts', {}))
+                    all_ring_counts.extend(progress.get('ring_counts', []))
+                    all_aromatic_ring_counts.extend(progress.get('aromatic_ring_counts', []))
+                    print(f"📋 Resuming chemical diversity analysis from {len(processed_chunks)} processed chunks")
+            except Exception as e:
+                print(f"⚠️  Error loading progress: {e}")
+        
+        remaining_chunks = [
+            (i, chunk) for i, chunk in enumerate(smiles_chunks)
+            if i not in processed_chunks
+        ]
+        
+        if remaining_chunks:
+            with ProcessPoolExecutor(max_workers=self.num_workers) as executor:
+                # Submit remaining chunks
+                futures = [
+                    executor.submit(calculate_diversity_chunk, chunk)
+                    for _, chunk in remaining_chunks
+                ]
+                
+                # Collect results with progress checkpointing
+                with tqdm(total=len(remaining_chunks), desc="Diversity analysis", unit="chunk") as pbar:
+                    for chunk_idx, (original_idx, _) in enumerate(remaining_chunks):
+                        try:
+                            chunk_result = futures[chunk_idx].result()
+                            
+                            # Merge results
+                            all_scaffolds.extend(chunk_result['scaffolds'])
+                            
+                            # Combine counters
+                            for element, count in chunk_result['element_counts'].items():
+                                combined_element_counts[element] += count
+                            
+                            for bond_type, count in chunk_result['bond_counts'].items():
+                                combined_bond_counts[bond_type] += count
+                            
+                            all_ring_counts.extend(chunk_result['ring_counts'])
+                            all_aromatic_ring_counts.extend(chunk_result['aromatic_ring_counts'])
+                            
+                            # Save progress after each chunk
+                            processed_chunks.add(original_idx)
+                            progress_data = {
+                                'processed_chunks': list(processed_chunks),
+                                'all_scaffolds': all_scaffolds,
+                                'element_counts': dict(combined_element_counts),
+                                'bond_counts': dict(combined_bond_counts),
+                                'ring_counts': all_ring_counts,
+                                'aromatic_ring_counts': all_aromatic_ring_counts
+                            }
+                            
+                            try:
+                                with open(progress_file, 'w') as f:
+                                    json.dump(progress_data, f, indent=2, default=str)
+                            except Exception as e:
+                                print(f"⚠️  Error saving progress: {e}")
+                            
+                            pbar.update(1)
+                            pbar.set_postfix({'scaffolds': f"{len(all_scaffolds):,}"})
+                            
+                        except Exception as e:
+                            print(f"⚠️  Error processing diversity chunk: {e}")
+                            pbar.update(1)
+        
+        # Clean up progress file
+        if os.path.exists(progress_file):
+            try:
+                os.remove(progress_file)
+            except Exception:
+                pass
         
         # Calculate final statistics
         scaffold_counts = Counter(all_scaffolds)
@@ -410,14 +622,32 @@ class SMILESDataAnalyzer:
         processing_time = time.time() - start_time
         molecules_per_second = len(self.molecules) / max(processing_time, 0.001)
         
+        # Save results immediately
         self.results['chemical_diversity'] = diversity_analysis
+        self._save_intermediate_results(step_name, diversity_analysis)
+        self._save_checkpoint(step_name, {
+            'unique_scaffolds': len(scaffold_counts),
+            'processing_time': processing_time,
+            'molecules_per_second': molecules_per_second
+        })
+        
         print(f"✅ Analyzed chemical diversity: {len(scaffold_counts):,} unique scaffolds in {processing_time:.1f}s")
         print(f"⚡ Performance: {molecules_per_second:.0f} molecules/second")
         
         return diversity_analysis
     
     def analyze_data_quality(self) -> Dict:
-        """Analyze data quality and validity."""
+        """Analyze data quality and validity with caching."""
+        step_name = "data_quality"
+        
+        # Check if already completed
+        if step_name in self.completed_steps:
+            print("📋 Data quality analysis already completed, loading from cache...")
+            cached_results = self._load_intermediate_results(step_name)
+            if cached_results:
+                self.results['data_quality'] = cached_results
+                return cached_results
+        
         print("🔍 Analyzing data quality...")
         
         total_molecules = len(self.molecules)
@@ -428,24 +658,70 @@ class SMILESDataAnalyzer:
         # Additional quality metrics
         valid_selfies_count = 0
         
-        for i, mol in enumerate(self.molecules):
-            if mol is None:
-                invalid_molecules += 1
-                continue
-                
+        # Use progress tracking for large datasets
+        progress_file = os.path.join(self.cache_dir, f"{step_name}_progress.json")
+        processed_count = 0
+        
+        if os.path.exists(progress_file):
             try:
-                smiles = Chem.MolToSmiles(mol)
-                if smiles:
-                    valid_molecules += 1
-                    unique_smiles.add(smiles)
-                    
-                    # Check SELFIES validity
-                    if self.selfies_list[i] is not None:
-                        valid_selfies_count += 1
-                else:
+                with open(progress_file, 'r') as f:
+                    progress = json.load(f)
+                    processed_count = progress.get('processed_count', 0)
+                    valid_molecules = progress.get('valid_molecules', 0)
+                    unique_smiles = set(progress.get('unique_smiles', []))
+                    invalid_molecules = progress.get('invalid_molecules', 0)
+                    valid_selfies_count = progress.get('valid_selfies_count', 0)
+                    print(f"📋 Resuming data quality analysis from {processed_count} processed molecules")
+            except Exception as e:
+                print(f"⚠️  Error loading progress: {e}")
+        
+        # Resume from where we left off
+        start_idx = processed_count
+        
+        with tqdm(total=len(self.molecules), initial=start_idx, desc="Quality analysis") as pbar:
+            for i in range(start_idx, len(self.molecules)):
+                mol = self.molecules[i]
+                if mol is None:
                     invalid_molecules += 1
-            except:
-                invalid_molecules += 1
+                    continue
+                    
+                try:
+                    smiles = Chem.MolToSmiles(mol)
+                    if smiles:
+                        valid_molecules += 1
+                        unique_smiles.add(smiles)
+                        
+                        # Check SELFIES validity
+                        if self.selfies_list[i] is not None:
+                            valid_selfies_count += 1
+                    else:
+                        invalid_molecules += 1
+                except:
+                    invalid_molecules += 1
+                
+                # Save progress periodically
+                if (i + 1) % 1000 == 0:
+                    progress_data = {
+                        'processed_count': i + 1,
+                        'valid_molecules': valid_molecules,
+                        'unique_smiles': list(unique_smiles),
+                        'invalid_molecules': invalid_molecules,
+                        'valid_selfies_count': valid_selfies_count
+                    }
+                    try:
+                        with open(progress_file, 'w') as f:
+                            json.dump(progress_data, f, indent=2, default=str)
+                    except Exception as e:
+                        print(f"⚠️  Error saving progress: {e}")
+                
+                pbar.update(1)
+        
+        # Clean up progress file
+        if os.path.exists(progress_file):
+            try:
+                os.remove(progress_file)
+            except Exception:
+                pass
         
         quality_analysis = {
             'total_molecules': total_molecules,
@@ -458,12 +734,26 @@ class SMILESDataAnalyzer:
             'processing_summary': self.dataset_summary
         }
         
+        # Save results immediately
         self.results['data_quality'] = quality_analysis
+        self._save_intermediate_results(step_name, quality_analysis)
+        self._save_checkpoint(step_name)
+        
         print(f"✅ Analyzed data quality: {valid_molecules:,} valid molecules ({quality_analysis['validity_rate']:.2%})")
         return quality_analysis
     
     def generate_recommendations(self) -> Dict:
-        """Generate training recommendations based on analysis."""
+        """Generate training recommendations based on analysis with immediate saving."""
+        step_name = "recommendations"
+        
+        # Check if already completed
+        if step_name in self.completed_steps:
+            print("📋 Recommendations already generated, loading from cache...")
+            cached_results = self._load_intermediate_results(step_name)
+            if cached_results:
+                self.results['recommendations'] = cached_results
+                return cached_results
+        
         print("💡 Generating training recommendations...")
         
         recommendations = {}
@@ -523,60 +813,143 @@ class SMILESDataAnalyzer:
         recommendations['min_epochs'] = 50
         recommendations['max_epochs'] = 200
         
+        # Save results immediately
         self.results['recommendations'] = recommendations
+        self._save_intermediate_results(step_name, recommendations)
+        self._save_checkpoint(step_name)
+        
+        # Save recommendations as separate file for immediate access
+        recommendations_file = os.path.join(self.output_path, 'training_recommendations.json')
+        try:
+            with open(recommendations_file, 'w') as f:
+                json.dump(recommendations, f, indent=2, default=str)
+            print(f"✅ Saved training recommendations to {recommendations_file}")
+        except Exception as e:
+            print(f"⚠️  Error saving recommendations: {e}")
+        
         return recommendations
     
     def generate_visualizations(self) -> None:
-        """Generate visualization plots."""
+        """Generate visualization plots with immediate saving."""
+        step_name = "visualizations"
+        
+        # Check if already completed
+        if step_name in self.completed_steps:
+            print("📋 Visualizations already generated, skipping...")
+            return
+        
         print("📊 Generating visualizations...")
         
         # Set up plotting style
         plt.style.use('seaborn-v0_8')
+        
+        # Generate individual plots for immediate feedback
+        plots_generated = []
+        
+        # 1. Molecular weight distribution
+        if self.properties.get('molecular_weight'):
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.hist(self.properties['molecular_weight'], bins=50, alpha=0.7, color='skyblue', edgecolor='black')
+            ax.set_title('Molecular Weight Distribution')
+            ax.set_xlabel('Molecular Weight (Da)')
+            ax.set_ylabel('Frequency')
+            ax.axvline(x=100, color='red', linestyle='--', alpha=0.5, label='Min filter')
+            ax.axvline(x=600, color='red', linestyle='--', alpha=0.5, label='Max filter')
+            ax.legend()
+            plt.tight_layout()
+            plt.savefig(os.path.join(self.output_path, 'molecular_weight_distribution.png'), dpi=300, bbox_inches='tight')
+            plt.close()
+            plots_generated.append('molecular_weight_distribution.png')
+            print("✅ Generated molecular weight distribution plot")
+        
+        # 2. LogP distribution
+        if self.properties.get('logp'):
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.hist(self.properties['logp'], bins=50, alpha=0.7, color='lightgreen', edgecolor='black')
+            ax.set_title('LogP Distribution')
+            ax.set_xlabel('LogP')
+            ax.set_ylabel('Frequency')
+            plt.tight_layout()
+            plt.savefig(os.path.join(self.output_path, 'logp_distribution.png'), dpi=300, bbox_inches='tight')
+            plt.close()
+            plots_generated.append('logp_distribution.png')
+            print("✅ Generated LogP distribution plot")
+        
+        # 3. Sequence length distribution
+        vocab_analysis = self.results.get('vocabulary', {})
+        if vocab_analysis.get('sequence_length_stats'):
+            lengths = [len(list(sf.split_selfies(s))) for s in self.selfies_list if s is not None]
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.hist(lengths, bins=50, alpha=0.7, color='salmon', edgecolor='black')
+            ax.set_title('SELFIES Sequence Length Distribution')
+            ax.set_xlabel('Sequence Length')
+            ax.set_ylabel('Frequency')
+            plt.tight_layout()
+            plt.savefig(os.path.join(self.output_path, 'sequence_length_distribution.png'), dpi=300, bbox_inches='tight')
+            plt.close()
+            plots_generated.append('sequence_length_distribution.png')
+            print("✅ Generated sequence length distribution plot")
+        
+        # 4. Element distribution
+        diversity_analysis = self.results.get('chemical_diversity', {})
+        if diversity_analysis.get('element_distribution'):
+            elements = list(diversity_analysis['element_distribution'].keys())
+            counts = list(diversity_analysis['element_distribution'].values())
+            top_elements = sorted(zip(elements, counts), key=lambda x: x[1], reverse=True)[:10]
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.bar([e[0] for e in top_elements], [e[1] for e in top_elements], color='teal')
+            ax.set_title('Element Distribution (Top 10)')
+            ax.set_xlabel('Element')
+            ax.set_ylabel('Count')
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+            plt.savefig(os.path.join(self.output_path, 'element_distribution.png'), dpi=300, bbox_inches='tight')
+            plt.close()
+            plots_generated.append('element_distribution.png')
+            print("✅ Generated element distribution plot")
+        
+        # 5. Comprehensive overview
         fig, axes = plt.subplots(3, 3, figsize=(20, 18))
         fig.suptitle('Comprehensive SMILES Data Analysis Report', fontsize=18, fontweight='bold')
         
+        # Fill the comprehensive plot with available data
         # 1. Molecular weight distribution
         if self.properties.get('molecular_weight'):
             axes[0, 0].hist(self.properties['molecular_weight'], bins=50, alpha=0.7, color='skyblue', edgecolor='black')
             axes[0, 0].set_title('Molecular Weight Distribution')
             axes[0, 0].set_xlabel('Molecular Weight (Da)')
             axes[0, 0].set_ylabel('Frequency')
-            axes[0, 0].axvline(x=100, color='red', linestyle='--', alpha=0.5, label='Min filter')
-            axes[0, 0].axvline(x=600, color='red', linestyle='--', alpha=0.5, label='Max filter')
-            axes[0, 0].legend()
-            
+        
         # 2. LogP distribution
         if self.properties.get('logp'):
             axes[0, 1].hist(self.properties['logp'], bins=50, alpha=0.7, color='lightgreen', edgecolor='black')
             axes[0, 1].set_title('LogP Distribution')
             axes[0, 1].set_xlabel('LogP')
             axes[0, 1].set_ylabel('Frequency')
-            
+        
         # 3. Sequence length distribution
-        vocab_analysis = self.results.get('vocabulary', {})
         if vocab_analysis.get('sequence_length_stats'):
             lengths = [len(list(sf.split_selfies(s))) for s in self.selfies_list if s is not None]
             axes[0, 2].hist(lengths, bins=50, alpha=0.7, color='salmon', edgecolor='black')
             axes[0, 2].set_title('SELFIES Sequence Length Distribution')
             axes[0, 2].set_xlabel('Sequence Length')
             axes[0, 2].set_ylabel('Frequency')
-            
+        
         # 4. Number of atoms distribution
         if self.properties.get('num_atoms'):
             axes[1, 0].hist(self.properties['num_atoms'], bins=30, alpha=0.7, color='gold', edgecolor='black')
             axes[1, 0].set_title('Number of Atoms Distribution')
             axes[1, 0].set_xlabel('Number of Atoms')
             axes[1, 0].set_ylabel('Frequency')
-            
+        
         # 5. QED distribution
         if self.properties.get('qed'):
             axes[1, 1].hist(self.properties['qed'], bins=50, alpha=0.7, color='plum', edgecolor='black')
             axes[1, 1].set_title('QED Distribution')
             axes[1, 1].set_xlabel('QED Score')
             axes[1, 1].set_ylabel('Frequency')
-            
+        
         # 6. Element distribution
-        diversity_analysis = self.results.get('chemical_diversity', {})
         if diversity_analysis.get('element_distribution'):
             elements = list(diversity_analysis['element_distribution'].keys())
             counts = list(diversity_analysis['element_distribution'].values())
@@ -586,7 +959,7 @@ class SMILESDataAnalyzer:
             axes[1, 2].set_xlabel('Element')
             axes[1, 2].set_ylabel('Count')
             axes[1, 2].tick_params(axis='x', rotation=45)
-            
+        
         # 7. Ring distribution
         if diversity_analysis.get('ring_distribution'):
             ring_data = list(diversity_analysis['ring_distribution'].items())
@@ -595,14 +968,14 @@ class SMILESDataAnalyzer:
             axes[2, 0].set_title('Ring Count Distribution')
             axes[2, 0].set_xlabel('Number of Rings')
             axes[2, 0].set_ylabel('Frequency')
-            
+        
         # 8. TPSA distribution
         if self.properties.get('tpsa'):
             axes[2, 1].hist(self.properties['tpsa'], bins=50, alpha=0.7, color='lightcoral', edgecolor='black')
             axes[2, 1].set_title('Topological Polar Surface Area (TPSA)')
             axes[2, 1].set_xlabel('TPSA (Å²)')
             axes[2, 1].set_ylabel('Frequency')
-            
+        
         # 9. Rotatable bonds distribution
         if self.properties.get('num_rotatable_bonds'):
             axes[2, 2].hist(self.properties['num_rotatable_bonds'], bins=30, alpha=0.7, color='lightsteelblue', edgecolor='black')
@@ -613,7 +986,11 @@ class SMILESDataAnalyzer:
         plt.tight_layout()
         plt.savefig(os.path.join(self.output_path, 'comprehensive_data_analysis.png'), dpi=300, bbox_inches='tight')
         plt.close()
-        print("✅ Generated comprehensive visualizations")
+        plots_generated.append('comprehensive_data_analysis.png')
+        
+        # Save checkpoint
+        self._save_checkpoint(step_name, {'plots_generated': plots_generated})
+        print(f"✅ Generated {len(plots_generated)} visualization plots")
     
     def generate_detailed_report(self) -> None:
         """Generate comprehensive analysis report."""
