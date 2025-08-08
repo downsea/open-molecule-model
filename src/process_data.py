@@ -164,14 +164,23 @@ class BasicDataProcessor:
         self.logger.info(f"BasicDataProcessor initialized with config: {config_path}")
     
     def is_valid_smiles(self, smiles: str) -> bool:
-        """Basic SMILES validation using RDKit."""
+        """Basic SMILES validation using RDKit with sanitization check."""
         if not smiles or not smiles.strip():
             return False
         
         try:
             mol = Chem.MolFromSmiles(smiles.strip())
-            return mol is not None and mol.GetNumAtoms() > 0
-        except:
+            if mol is None or mol.GetNumAtoms() == 0:
+                return False
+            
+            # Add sanitization check for extra safety
+            try:
+                Chem.SanitizeMol(mol)
+                return True
+            except Chem.rdchem.MolSanitizeException:
+                # This will catch issues like kekulization failure
+                return False
+        except Exception:
             return False
     
     def load_and_parse_molecules_mmap(self, input_path: str) -> Iterator[str]:

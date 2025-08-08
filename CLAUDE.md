@@ -449,18 +449,19 @@ python -m src.evaluate --mode latent_space
 ### Data Processing Optimizations
 The data processing pipeline in `src/process_data.py` has been comprehensively optimized:
 
-1. **In-Memory Deduplication**: Replaced disk-based SQLite deduplication with in-memory set operations for significantly faster performance
-2. **Improved Chunk Size**: Increased default chunk size from 10,000 to 100,000 molecules for better memory efficiency
-3. **Optimized Multiprocessing**: Increased multiprocessing threshold from 1,000 to 5,000 molecules to reduce overhead
-4. **Reduced Progress Bar Updates**: Decreased frequency of progress bar updates to reduce UI overhead
-5. **Enhanced File Reading**: Increased progress reporting frequency during file reading to every 50,000 lines
-6. **Better Error Handling**: Added try/except blocks around logging and report saving functions for robustness
-7. **Increased Workers**: Increased default number of workers from 4 to 8 for better parallelization
-8. **Expanded Molecular Weight Range**: Adjusted molecular weight filtering range from 100-600 to 10-1000 for broader molecule acceptance
-9. **Dynamic Vocabulary Building**: SELFIES vocabulary built from actual data instead of static predefined tokens
-10. **Streaming Dataset Support**: Buffered streaming with worker-aware data distribution
-11. **Custom Collate Functions**: PyG-optimized batching for molecular graphs
-12. **Memory Monitoring**: Automatic cache management and cleanup
+1. **Enhanced SMILES Validation**: Added sanitization check using `Chem.SanitizeMol()` to filter chemically invalid molecules
+2. **In-Memory Deduplication**: Replaced disk-based SQLite deduplication with in-memory set operations for significantly faster performance
+3. **Improved Chunk Size**: Increased default chunk size from 10,000 to 100,000 molecules for better memory efficiency
+4. **Optimized Multiprocessing**: Increased multiprocessing threshold from 1,000 to 5,000 molecules to reduce overhead
+5. **Reduced Progress Bar Updates**: Decreased frequency of progress bar updates to reduce UI overhead
+6. **Enhanced File Reading**: Increased progress reporting frequency during file reading to every 50,000 lines
+7. **Better Error Handling**: Added try/except blocks around logging and report saving functions for robustness
+8. **Increased Workers**: Increased default number of workers from 4 to 8 for better parallelization
+9. **Expanded Molecular Weight Range**: Adjusted molecular weight filtering range from 100-600 to 10-1000 for broader molecule acceptance
+10. **Dynamic Vocabulary Building**: SELFIES vocabulary built from actual data instead of static predefined tokens
+11. **Streaming Dataset Support**: Buffered streaming with worker-aware data distribution
+12. **Custom Collate Functions**: PyG-optimized batching for molecular graphs
+13. **Memory Monitoring**: Automatic cache management and cleanup
 
 ## 📊 Optimization Documentation
 
