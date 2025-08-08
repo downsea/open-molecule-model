@@ -48,6 +48,11 @@ usage() {
   echo "  $0 --standardize config_optimized.yaml  # Create training data with filters"
   echo "  $0 --benchmark                   # Run performance benchmark"
   echo ""
+  echo "🔄 GraphDiT Pipeline:"
+  echo "  $0 --train-graphdit              # Train GraphDiT model"
+  echo "  $0 --generate-graphdit           # Generate molecules with GraphDiT"
+  echo "  $0 --optimize-graphdit           # Optimize molecules with GraphDiT"
+  echo ""
   echo "Training options:"
   echo "  --config FILE     Use specific config file (default: config.yaml)"
   echo "  --lr LR           Learning rate"
@@ -554,6 +559,177 @@ run_search() {
   python hyperparameter_search.py $SEARCH_ARGS
 }
 
+# Function to train GraphDiT model
+run_train_graphdit() {
+  echo "🧬 Training GraphDiT model..."
+  source $VENV_DIR/Scripts/activate
+  
+  # Ensure Python path includes the project root
+  export PYTHONPATH="${PWD}:$PYTHONPATH"
+  
+  # Parse training arguments
+  TRAIN_ARGS=""
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --config)
+        TRAIN_ARGS="$TRAIN_ARGS --config $2"
+        shift 2
+        ;;
+      --data-path)
+        TRAIN_ARGS="$TRAIN_ARGS --data-path $2"
+        shift 2
+        ;;
+      --epochs)
+        TRAIN_ARGS="$TRAIN_ARGS --epochs $2"
+        shift 2
+        ;;
+      --batch-size)
+        TRAIN_ARGS="$TRAIN_ARGS --batch-size $2"
+        shift 2
+        ;;
+      --learning-rate)
+        TRAIN_ARGS="$TRAIN_ARGS --learning-rate $2"
+        shift 2
+        ;;
+      --device)
+        TRAIN_ARGS="$TRAIN_ARGS --device $2"
+        shift 2
+        ;;
+      --save-dir)
+        TRAIN_ARGS="$TRAIN_ARGS --save-dir $2"
+        shift 2
+        ;;
+      --log-dir)
+        TRAIN_ARGS="$TRAIN_ARGS --log-dir $2"
+        shift 2
+        ;;
+      --use-wandb)
+        TRAIN_ARGS="$TRAIN_ARGS --use-wandb"
+        shift
+        ;;
+      *)
+        shift
+        ;;
+    esac
+  done
+  
+  python -m src.graph_dit.train_graph_dit $TRAIN_ARGS
+}
+
+# Function to generate molecules with GraphDiT
+run_generate_graphdit() {
+  echo "⚗️  Generating molecules with GraphDiT..."
+  source $VENV_DIR/Scripts/activate
+  
+  # Ensure Python path includes the project root
+  export PYTHONPATH="${PWD}:$PYTHONPATH"
+  
+  # Parse generation arguments
+  GEN_ARGS=""
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --checkpoint)
+        GEN_ARGS="$GEN_ARGS --checkpoint $2"
+        shift 2
+        ;;
+      --config)
+        GEN_ARGS="$GEN_ARGS --config $2"
+        shift 2
+        ;;
+      --num-samples)
+        GEN_ARGS="$GEN_ARGS --num-samples $2"
+        shift 2
+        ;;
+      --temperature)
+        GEN_ARGS="$GEN_ARGS --temperature $2"
+        shift 2
+        ;;
+      --output)
+        GEN_ARGS="$GEN_ARGS --output $2"
+        shift 2
+        ;;
+      --device)
+        GEN_ARGS="$GEN_ARGS --device $2"
+        shift 2
+        ;;
+      --evaluate)
+        GEN_ARGS="$GEN_ARGS --evaluate"
+        shift
+        ;;
+      *)
+        shift
+        ;;
+    esac
+  done
+  
+  python -m src.graph_dit.generate_molecules $GEN_ARGS
+}
+
+# Function to optimize molecules with GraphDiT
+run_optimize_graphdit() {
+  echo "🔬 Optimizing molecules with GraphDiT..."
+  source $VENV_DIR/Scripts/activate
+  
+  # Ensure Python path includes the project root
+  export PYTHONPATH="${PWD}:$PYTHONPATH"
+  
+  # Parse optimization arguments
+  OPT_ARGS=""
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --checkpoint)
+        OPT_ARGS="$OPT_ARGS --checkpoint $2"
+        shift 2
+        ;;
+      --critic-checkpoint)
+        OPT_ARGS="$OPT_ARGS --critic-checkpoint $2"
+        shift 2
+        ;;
+      --config)
+        OPT_ARGS="$OPT_ARGS --config $2"
+        shift 2
+        ;;
+      --input-smiles)
+        OPT_ARGS="$OPT_ARGS --input-smiles $2"
+        shift 2
+        ;;
+      --property)
+        OPT_ARGS="$OPT_ARGS --property $2"
+        shift 2
+        ;;
+      --target)
+        OPT_ARGS="$OPT_ARGS --target $2"
+        shift 2
+        ;;
+      --num-steps)
+        OPT_ARGS="$OPT_ARGS --num-steps $2"
+        shift 2
+        ;;
+      --guidance-scale)
+        OPT_ARGS="$OPT_ARGS --guidance-scale $2"
+        shift 2
+        ;;
+      --similarity-constraint)
+        OPT_ARGS="$OPT_ARGS --similarity-constraint $2"
+        shift 2
+        ;;
+      --output)
+        OPT_ARGS="$OPT_ARGS --output $2"
+        shift 2
+        ;;
+      --device)
+        OPT_ARGS="$OPT_ARGS --device $2"
+        shift 2
+        ;;
+      *)
+        shift
+        ;;
+    esac
+  done
+  
+  python -m src.graph_dit.optimize_molecules $OPT_ARGS
+}
+
 # --- Main Script ---
 
 # Parse command-line arguments
@@ -615,6 +791,21 @@ while [[ "$#" -gt 0 ]]; do
       python -m src.data_analysis --data-path "data/processed" --output-path "data/data_report"
       python -m src.config_updater
       exit $?
+      ;;
+    --train-graphdit)
+      shift
+      run_train_graphdit "$@"
+      break
+      ;;
+    --generate-graphdit)
+      shift
+      run_generate_graphdit "$@"
+      break
+      ;;
+    --optimize-graphdit)
+      shift
+      run_optimize_graphdit "$@"
+      break
       ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown parameter passed: $1"; usage; exit 1 ;;

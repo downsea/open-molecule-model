@@ -422,13 +422,20 @@ def create_optimized_dataloader(dataset, batch_size, num_workers=0, shuffle=Fals
     dataloader_kwargs = {
         'dataset': dataset,
         'batch_size': batch_size,
-        'shuffle': shuffle,
         'num_workers': num_workers,
         'collate_fn': optimized_collate_fn,
         'pin_memory': pin_memory and torch.cuda.is_available(),
         'persistent_workers': persistent_workers and num_workers > 0,
         'drop_last': True,  # Drop incomplete batches for consistent training
     }
+    
+    # Handle shuffle parameter based on dataset type
+    from torch.utils.data import IterableDataset
+    if isinstance(dataset, IterableDataset):
+        # IterableDataset doesn't support shuffle parameter
+        pass
+    else:
+        dataloader_kwargs['shuffle'] = shuffle
     
     # Only set prefetch_factor when using multiprocessing
     if num_workers > 0:

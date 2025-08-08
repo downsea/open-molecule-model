@@ -1,0 +1,71 @@
+# Default configuration for GraphDiT
+
+model:
+  node_dim: 20  # Number of atom types (including unknown)
+  edge_dim: 4   # Number of bond types (single, double, triple, aromatic)
+  hidden_dim: 256
+  num_layers: 8
+  num_heads: 8
+  dropout: 0.1
+  max_time_steps: 1000
+
+scheduler:
+  num_timesteps: 1000
+  beta_start: 1e-4
+  beta_end: 0.02
+  schedule: "cosine"  # linear, cosine, quadratic
+
+data:
+  data_path: "data/zinc250k"
+  max_num_atoms: 50
+  min_num_atoms: 3
+  batch_size: 32
+  num_workers: 4
+  train_split: 0.8
+  val_split: 0.1
+  test_split: 0.1
+
+training:
+  num_epochs: 100
+  learning_rate: 1e-4
+  weight_decay: 1e-4
+  warmup_steps: 1000
+  log_dir: "logs/graph_dit"
+  checkpoint_dir: "checkpoints/graph_dit"
+  save_every: 5
+  eval_every: 1
+  use_wandb: false
+  wandb_project: "graph-dit"
+
+generation:
+  num_samples: 1000
+  temperature: 1.0
+  guidance_scale: 0.0
+  num_nodes_range: [3, 50]
+  batch_size: 32
+
+optimization:
+  num_steps: 50
+  guidance_scale: 1.0
+  noise_start: 0.8
+  noise_end: 0.0
+  temperature: 1.0
+  similarity_constraint: 0.7
+  max_attempts: 10
+
+property_prediction:
+  task_name: "molecular_weight"
+  task_type: "regression"  # regression or classification
+  num_classes: 1
+  hidden_dims: [512, 256]
+  dropout: 0.1
+  learning_rate: 1e-3
+  num_epochs: 50
+
+# Device configuration
+device: "cuda"
+seed: 42
+
+# Directory structure
+data_dir: "data"
+output_dir: "outputs"

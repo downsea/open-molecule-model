@@ -1,0 +1,280 @@
+# Unified Configuration for PanGu Drug Model and GraphDiT
+# This configuration supports both the original PanGu cVAE and new GraphDiT models
+
+# =============================================================================
+# SHARED DATA CONFIGURATION
+# =============================================================================
+data:
+  # Base paths - used by both PanGu and GraphDiT
+  dataset_path: "data/standard"
+  train_dataset_path: "data/standard/train"
+  val_dataset_path: "data/standard/val"
+  test_dataset_path: "data/standard/test"
+  
+  # Processing paths
+  raw_data_path: "data/raw"
+  processed_data_path: "data/processed"
+  standard_data_path: "data/standard"
+  data_report_path: "data/data_report"
+  
+  # Common data parameters
+  max_length: 128
+  batch_size: 32
+  use_streaming: false
+  cache_in_memory: true
+  prefetch_factor: 2
+  num_workers: 8
+  pin_memory: true
+  persistent_workers: false
+  
+  # GraphDiT specific data parameters
+  max_num_atoms: 100
+  max_num_bonds: 200
+  
+# =============================================================================
+# PANGU DRUG MODEL CONFIGURATION
+# =============================================================================
+pangu:
+  model:
+    num_node_features: 6
+    hidden_dim: 256
+    num_encoder_layers: 8
+    num_encoder_heads: 8
+    num_selected_layers: 8
+    num_decoder_layers: 6
+    num_decoder_heads: 8
+    latent_dim: 128
+    dropout: 0.1
+    
+  training:
+    learning_rate: 1e-4
+    num_epochs: 100
+    beta: 0.0001
+    gradient_clip: 1.0
+    gradient_accumulation_steps: 1
+    warmup_steps: 1000
+    scheduler: "cosine"
+    weight_decay: 1e-5
+    early_stopping_patience: 15
+    min_epochs: 10
+    
+    # Performance optimizations
+    mixed_precision: true
+    compile_model: true
+    gradient_checkpointing: false
+    
+  evaluation:
+    num_samples: 1000
+    device: "cuda"
+    batch_size: 32
+
+# =============================================================================
+# GRAPHDIT CONFIGURATION
+# =============================================================================
+graphdit:
+  model:
+    # Node and edge dimensions
+    node_dim: 20              # Atom types (C, N, O, F, etc. + special tokens)
+    edge_dim: 4               # Bond types (single, double, triple, aromatic)
+    
+    # Architecture parameters
+    hidden_dim: 256           # Hidden dimension for transformer layers
+    num_layers: 8             # Number of transformer layers
+    num_heads: 8              # Number of attention heads
+    dropout: 0.1
+    
+    # Time embedding
+    time_embed_dim: 256
+    max_time_steps: 1000
+    
+  scheduler:
+    # Noise scheduling
+    num_timesteps: 1000
+    beta_start: 0.0001
+    beta_end: 0.02
+    schedule: "cosine"        # cosine, linear, quadratic
+    
+    # Categorical diffusion parameters
+    num_node_classes: 20
+    num_edge_classes: 4
+    
+  training:
+    learning_rate: 1e-4
+    num_epochs: 100
+    weight_decay: 1e-5
+    gradient_clip: 1.0
+    
+    # Optimizer settings
+    optimizer: "adamw"
+    scheduler: "cosine"
+    warmup_steps: 1000
+    
+    # Performance settings
+    mixed_precision: true
+    compile_model: true
+    gradient_checkpointing: false
+    
+  generation:
+    # Generation parameters
+    num_samples: 100
+    temperature: 1.0
+    guidance_scale: 1.0
+    max_attempts: 10
+    
+  optimization:
+    # Guided optimization settings
+    guidance_steps: 50
+    guidance_scale: 1.0
+    similarity_constraint: 0.7
+    
+    # Multi-objective optimization
+    use_multi_objective: true
+    property_weights:
+      logp: 1.0
+      qed: 0.5
+      tpsa: 0.3
+
+# =============================================================================
+# DATA PROCESSING CONFIGURATION
+# =============================================================================
+processing:
+  # Basic processing parameters
+  chunk_size: 100000
+  memory_limit_gb: 16.0
+  num_workers: 8
+  use_multiprocessing: true
+  use_compression: true
+  use_memory_mapping: true
+  progress_update_interval: 5000
+  expected_molecules: 10000000
+  
+  # Molecular filtering
+  min_molecular_weight: 10.0
+  max_molecular_weight: 1000.0
+  allowed_atoms: ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I", "H"]
+
+# =============================================================================
+# DATA STANDARDIZATION CONFIGURATION
+# =============================================================================
+standardize:
+  # Standardization parameters
+  standard_data_path: "data/standard"
+  
+  # Molecular filters
+  min_molecular_weight: 100.0
+  max_molecular_weight: 600.0
+  allowed_atoms: ["C", "N", "O", "S", "P", "F", "Cl", "Br", "I", "H"]
+  
+  # Data splitting
+  train_ratio: 0.8
+  val_ratio: 0.1
+  test_ratio: 0.1
+  
+  # Standardization options
+  remove_salts: true
+  neutralize_charges: true
+  canonicalize: true
+  
+  # Processing parameters
+  chunk_size: 50000
+  num_workers: 8
+  use_multiprocessing: true
+  progress_update_interval: 1000
+
+# =============================================================================
+# SYSTEM CONFIGURATION
+# =============================================================================
+system:
+  device: "cuda"
+  mixed_precision: true
+  num_workers: 8
+  pin_memory: true
+  max_memory_gb: 16.0
+  memory_cleanup_interval: 100
+  log_gpu_memory: true
+
+# =============================================================================
+# LOGGING CONFIGURATION
+# =============================================================================
+logging:
+  level: "INFO"
+  log_dir: "logs"
+  log_interval: 100
+  save_interval: 1000
+  eval_interval: 5000
+  
+  # GraphDiT specific logging
+  wandb_project: "graphdit-molecular-design"
+  use_wandb: false
+  
+  # Performance tracking
+  track_gpu_memory: true
+  track_throughput: true
+  track_loss_components: true
+
+# =============================================================================
+# PATHS CONFIGURATION
+# =============================================================================
+paths:
+  # PanGu paths
+  log_dir: "runs/pangu"
+  checkpoint_path: "checkpoints/pangu_model.pt"
+  best_model_path: "checkpoints/pangu_best.pt"
+  
+  # GraphDiT paths
+  graphdit_log_dir: "runs/graphdit"
+  graphdit_checkpoint_path: "checkpoints/graphdit_model.pt"
+  graphdit_best_model_path: "checkpoints/graphdit_best.pt"
+  
+  # Shared paths
+  results_dir: "results"
+  cache_dir: "cache"
+
+# =============================================================================
+# EVALUATION CONFIGURATION
+# =============================================================================
+evaluation:
+  # Common evaluation settings
+  batch_size: 32
+  device: "cuda"
+  
+  # GraphDiT evaluation specific
+  generation:
+    num_samples: 1000
+    temperature: 1.0
+    max_attempts: 10
+    
+  metrics:
+    compute_validity: true
+    compute_uniqueness: true
+    compute_novelty: true
+    compute_moses_metrics: true
+    
+  properties:
+    - logp
+    - qed
+    - molecular_weight
+    - tpsa
+
+# =============================================================================
+# HYPERPARAMETER SEARCH CONFIGURATION
+# =============================================================================
+hyperparameter_search:
+  # Search space for both models
+  pangu:
+    learning_rate: [1e-5, 5e-5, 1e-4, 5e-4]
+    batch_size: [16, 32, 64]
+    hidden_dim: [128, 256, 512]
+    beta: [0.0001, 0.001, 0.01]
+    
+  graphdit:
+    learning_rate: [1e-5, 5e-5, 1e-4, 5e-4]
+    batch_size: [16, 32, 64]
+    hidden_dim: [128, 256, 512]
+    num_layers: [6, 8, 10]
+    guidance_scale: [0.5, 1.0, 2.0]
+    
+  # Search settings
+  num_trials: 50
+  max_epochs_per_trial: 5
+  search_strategy: "random"  # random, grid, bayesian
